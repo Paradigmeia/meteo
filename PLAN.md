@@ -111,8 +111,13 @@ Voir SPEC.md §3 (source de vérité).
 - **Pourquoi** : Éviter une refacto quand on achète les 3 sondes suivantes. Ajouter une sonde = INSERT en base uniquement.
 - **Trade-off** : Aucun.
 
----
+### Décision 5 (2026-05-23)
 
-## 6. Décisions abandonnées (historique)
+- **Contexte** : Choix de la source météo externe pour Ascain
+- **Choix** : Open-Meteo (gratuit, sans clé API, open source)
+- **Pourquoi** : Agrège 30+ modèles dont AROME (Météo-France, 1-2 km pour la France) et ECMWF IFS. Pays Basque = terrain complexe (montagne + côte) → résolution 1-2 km essentielle. Zéro coût, zéro dépendance à un compte tiers.
+- **Trade-off** : Pas de SLA garanti (usage non-commercial). Acceptable pour un usage domestique. Mitigation : cache 30 min côté serveur, fallback gracieux si l'API est indisponible.
+
+--- (historique)
 
 _(vide pour l'instant)_

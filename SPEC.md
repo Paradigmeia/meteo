@@ -98,7 +98,34 @@ Par sonde, graphique de la température et de l'humidité sur une période séle
 - 7 jours
 - 30 jours
 
-### 4.4 Sondes prévues
+### 4.4 Météo locale Ascain
+
+Bloc météo affiché sur le dashboard, alimenté par l'API **Open-Meteo** (gratuite, sans clé, open source).
+
+**Coordonnées fixes** : Ascain — lat `43.3667`, lon `-1.5500`
+
+**Données affichées :**
+- Météo actuelle : température, humidité, vent, état du ciel (icône)
+- Prévision J+1 : min/max température, précipitations, état du ciel
+
+**Stratégie précision — double modèle :**
+
+Le backend interroge Open-Meteo avec deux modèles simultanément :
+- `best_match` : sélectionne automatiquement AROME (Météo-France, résolution 1-2 km pour la France)
+- `ecmwf_ifs025` : modèle ECMWF IFS, référence mondiale (résolution ~25 km)
+
+Affichage : valeurs des deux modèles côte à côte. Si écart < 1°C → indicateur "bonne concordance". Si écart ≥ 1°C → indicateur "prévisions divergentes" (incite l'utilisateur à la prudence).
+
+**Fréquence de rafraîchissement** : toutes les 30 min (les modèles régionaux se mettent à jour toutes les 1-3h).
+
+**Endpoint backend** :
+```
+GET /api/meteo          → météo actuelle + J+1 (depuis cache 30min)
+```
+
+Les données sont mises en cache côté serveur pour ne pas solliciter Open-Meteo à chaque chargement de page.
+
+### 4.5 Sondes prévues
 
 | Slug | Nom affiché | Type |
 |---|---|---|
