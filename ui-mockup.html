@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>La maison — maquette</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.19.0/dist/tabler-icons.min.css">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, 'Helvetica Neue', sans-serif;
+    background: #F7F3EE;
+    display: flex;
+    justify-content: center;
+    padding: 2rem 1rem;
+    min-height: 100vh;
+    color: #1A1714;
+  }
+  #app { width: 100%; max-width: 390px; }
+
+  .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; }
+  .header-sub { font-size: 12px; color: #8C8880; }
+  .header-title { font-size: 22px; font-weight: 500; margin-top: 2px; }
+
+  .meteo-card { background: #EDE6DB; border-radius: 16px; padding: 1.25rem; margin-bottom: 1.25rem; }
+
+  /* Current conditions */
+  .meteo-top { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 1rem; }
+  .meteo-label { font-size: 11px; color: #8C8880; text-transform: uppercase; letter-spacing: .06em; margin-bottom: 8px; }
+  .meteo-temp { font-size: 44px; font-weight: 500; line-height: 1; }
+  .meteo-cond { font-size: 16px; font-weight: 400; color: #6B6560; }
+  .meteo-details { display: flex; gap: 14px; margin-top: 8px; }
+  .meteo-detail { font-size: 13px; color: #6B6560; display: flex; align-items: center; gap: 4px; }
+
+  /* Bandeau horaire */
+  .hourly-strip {
+    display: flex;
+    gap: 0;
+    overflow-x: auto;
+    margin: 0 -1.25rem;
+    padding: 0 1.25rem;
+    scrollbar-width: none;
+    border-top: 1px solid rgba(0,0,0,.08);
+    border-bottom: 1px solid rgba(0,0,0,.08);
+    padding-top: .75rem;
+    padding-bottom: .75rem;
+    margin-bottom: 0;
+  }
+  .hourly-strip::-webkit-scrollbar { display: none; }
+  .hour-slot {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    min-width: 52px;
+    padding: 0 4px;
+    flex-shrink: 0;
+  }
+  .hour-slot.now .hour-lbl { color: #BA7517; font-weight: 500; }
+  .hour-slot.now .hour-temp { color: #BA7517; font-weight: 500; }
+  .hour-lbl { font-size: 11px; color: #8C8880; }
+  .hour-icon { font-size: 20px; }
+  .hour-temp { font-size: 14px; font-weight: 400; color: #1A1714; }
+  .hour-precip { font-size: 11px; color: #378ADD; }
+  .hour-precip.dry { color: transparent; }
+
+  /* Divider + demain */
+  .meteo-divider { padding-top: 1rem; margin-top: 0; }
+  .tomorrow-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+  .tomorrow-left { display: flex; align-items: center; gap: 8px; }
+  .models { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; }
+  .model-box { background: #F7F3EE; border-radius: 8px; padding: 8px; text-align: center; }
+  .model-name { font-size: 10px; color: #B5B0A8; text-transform: uppercase; letter-spacing: .05em; margin-bottom: 3px; }
+  .model-val { font-size: 17px; font-weight: 500; color: #1A1714; }
+  .model-ok { background: #E1F5EE; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+
+  /* Sections + cards */
+  .section-label { font-size: 11px; font-weight: 500; color: #8C8880; text-transform: uppercase; letter-spacing: .06em; margin: 0 0 10px; }
+  .sonde-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin-bottom: 8px; }
+  .sonde-card {
+    background: #FFF9F2; border: 1px solid rgba(0,0,0,.06); border-radius: 16px;
+    padding: 1rem; cursor: pointer; transition: background .12s;
+  }
+  .sonde-card:hover { background: #EDE6DB; }
+  .sonde-name { font-size: 12px; color: #8C8880; margin-bottom: 10px; }
+  .sonde-temp { font-size: 28px; font-weight: 500; }
+  .sonde-hum { display: flex; align-items: center; gap: 4px; margin-top: 5px; font-size: 12px; color: #6B6560; }
+  .sonde-ago { font-size: 11px; color: #B5B0A8; margin-top: 8px; }
+  .sonde-full { grid-column: 1 / -1; display: flex; justify-content: space-between; align-items: center; }
+  .offline-badge { font-size: 11px; background: #FCEBEB; color: #A32D2D; padding: 2px 8px; border-radius: 6px; margin-left: 8px; }
+
+  /* Detail */
+  #detail { display: none; }
+  .back-btn { display: flex; align-items: center; gap: 6px; font-size: 14px; color: #6B6560; background: none; border: none; padding: 0; cursor: pointer; margin-bottom: 1.5rem; }
+  .back-btn:hover { color: #1A1714; }
+  .metrics { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 1.5rem; }
+  .metric { background: #EDE6DB; border-radius: 10px; padding: 1rem; }
+  .metric-label { font-size: 12px; color: #6B6560; margin-bottom: 4px; }
+  .metric-val { font-size: 32px; font-weight: 500; }
+  .periods { display: flex; gap: 6px; margin-bottom: 1rem; }
+  .period-btn { flex: 1; background: #EDE6DB; border: none; border-radius: 8px; padding: 8px; font-size: 13px; color: #6B6560; cursor: pointer; transition: all .12s; }
+  .period-btn.active { background: #1A1714; color: #F7F3EE; }
+  .chart-card { background: #FFF9F2; border: 1px solid rgba(0,0,0,.06); border-radius: 16px; padding: 1rem; }
+  .chart-legend { display: flex; gap: 16px; margin-bottom: 10px; }
+  .legend-item { font-size: 11px; color: #6B6560; display: flex; align-items: center; gap: 6px; }
+</style>
+</head>
+<body>
+<div id="app">
+
+  <!-- DASHBOARD -->
+  <div id="dash">
+
+    <div class="header">
+      <div>
+        <div class="header-sub">Sam. 23 mai 2026</div>
+        <div class="header-title">La maison</div>
+      </div>
+      <i class="ti ti-home-2" style="font-size:24px;color:#B5B0A8" aria-hidden="true"></i>
+    </div>
+
+    <div class="meteo-card">
+
+      <!-- Actuel -->
+      <div class="meteo-top">
+        <div>
+          <div class="meteo-label">Ascain · maintenant</div>
+          <span class="meteo-temp">18°</span> <span class="meteo-cond">Ensoleillé</span>
+          <div class="meteo-details">
+            <span class="meteo-detail"><i class="ti ti-droplet" style="color:#1D9E75"></i>72%</span>
+            <span class="meteo-detail"><i class="ti ti-wind"></i>12 km/h SO</span>
+          </div>
+        </div>
+        <i class="ti ti-sun" style="font-size:54px;color:#EF9F27;margin-top:-4px" aria-hidden="true"></i>
+      </div>
+
+      <!-- Bandeau horaire -->
+      <div class="hourly-strip" id="hourly-strip"></div>
+
+      <!-- Demain + double modèle -->
+      <div class="meteo-divider">
+        <div class="tomorrow-row">
+          <div class="tomorrow-left">
+            <i class="ti ti-cloud-rain" style="font-size:18px;color:#378ADD" aria-hidden="true"></i>
+            <span style="font-size:14px">Demain — 14° / 21°</span>
+          </div>
+          <span style="font-size:12px;color:#8C8880">Pluie possible</span>
+        </div>
+        <div class="models">
+          <div class="model-box"><div class="model-name">AROME</div><div class="model-val">21°</div></div>
+          <div class="model-box"><div class="model-name">ECMWF</div><div class="model-val">22°</div></div>
+          <div class="model-box model-ok">
+            <i class="ti ti-check" style="font-size:14px;color:#0F6E56" aria-hidden="true"></i>
+            <div style="font-size:10px;color:#0F6E56;margin-top:2px">Accord</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Intérieur -->
+    <div class="section-label">Intérieur</div>
+    <div class="sonde-grid">
+      <div class="sonde-card" onclick="show('Salon','21.4','58','il y a 12 min')">
+        <div class="sonde-name">Salon</div>
+        <div class="sonde-temp">21.4°</div>
+        <div class="sonde-hum"><i class="ti ti-droplet" style="font-size:13px;color:#1D9E75"></i>58%</div>
+        <div class="sonde-ago">il y a 12 min</div>
+      </div>
+      <div class="sonde-card" onclick="show('Chambre Jade','19.8','65','il y a 3 min')">
+        <div class="sonde-name">Ch. Jade</div>
+        <div class="sonde-temp">19.8°</div>
+        <div class="sonde-hum"><i class="ti ti-droplet" style="font-size:13px;color:#1D9E75"></i>65%</div>
+        <div class="sonde-ago">il y a 3 min</div>
+      </div>
+      <div class="sonde-card sonde-full" onclick="show('Ch. parents',null,null,'il y a 4h 12min')">
+        <div>
+          <div style="display:flex;align-items:center;margin-bottom:10px">
+            <span class="sonde-name" style="margin:0">Ch. parents</span>
+            <span class="offline-badge">Hors ligne</span>
+          </div>
+          <div style="font-size:28px;font-weight:500;color:#C4BFB8">— °</div>
+          <div style="font-size:11px;color:#A32D2D;margin-top:8px">Dernier relevé il y a 4h 12min</div>
+        </div>
+        <i class="ti ti-wifi-off" style="font-size:26px;color:#D85A30" aria-hidden="true"></i>
+      </div>
+    </div>
+
+    <!-- Extérieur -->
+    <div class="section-label" style="margin-top:6px">Extérieur</div>
+    <div class="sonde-card sonde-full" onclick="show('Extérieur','14.2','78','il y a 2 min')">
+      <div>
+        <div class="sonde-name">Extérieur</div>
+        <div class="sonde-temp">14.2°</div>
+        <div class="sonde-hum"><i class="ti ti-droplet" style="font-size:13px;color:#1D9E75"></i>78%</div>
+        <div class="sonde-ago">il y a 2 min</div>
+      </div>
+      <i class="ti ti-trees" style="font-size:34px;color:#B5B0A8" aria-hidden="true"></i>
+    </div>
+  </div>
+
+  <!-- DETAIL -->
+  <div id="detail">
+    <button class="back-btn" onclick="back()"><i class="ti ti-arrow-left" aria-hidden="true"></i> Retour</button>
+    <div style="font-size:22px;font-weight:500;margin-bottom:2px" id="d-name">Salon</div>
+    <div style="font-size:13px;color:#8C8880;margin-bottom:1.5rem" id="d-last">—</div>
+    <div class="metrics">
+      <div class="metric">
+        <div class="metric-label">Température</div>
+        <div class="metric-val" id="d-temp">21.4°</div>
+      </div>
+      <div class="metric">
+        <div class="metric-label">Humidité</div>
+        <div class="metric-val" id="d-hum" style="color:#1D9E75">58%</div>
+      </div>
+    </div>
+    <div class="periods">
+      <button class="period-btn active" onclick="per('24h',this)">24h</button>
+      <button class="period-btn" onclick="per('7j',this)">7 jours</button>
+      <button class="period-btn" onclick="per('30j',this)">30 jours</button>
+    </div>
+    <div class="chart-card">
+      <div class="chart-legend">
+        <span class="legend-item"><span style="display:inline-block;width:20px;height:2px;background:#BA7517;border-radius:1px"></span>Température</span>
+        <span class="legend-item"><span style="display:inline-block;width:20px;height:0;border-top:2px dashed #1D9E75"></span>Humidité</span>
+      </div>
+      <svg id="chart" height="160" style="width:100%;overflow:visible"></svg>
+    </div>
+  </div>
+
+</div>
+
+<script>
+// ---- Bandeau horaire ----
+const HOURS = [
+  {h:'Maint.',icon:'ti-sun',temp:'18°',precip:0,now:true},
+  {h:'15h',icon:'ti-sun',temp:'19°',precip:0},
+  {h:'16h',icon:'ti-sun',temp:'20°',precip:5},
+  {h:'17h',icon:'ti-cloud-sun',temp:'19°',precip:10},
+  {h:'18h',icon:'ti-cloud-sun',temp:'18°',precip:15},
+  {h:'19h',icon:'ti-cloud',temp:'17°',precip:20},
+  {h:'20h',icon:'ti-cloud',temp:'16°',precip:25},
+  {h:'21h',icon:'ti-cloud',temp:'15°',precip:20},
+  {h:'22h',icon:'ti-cloud-rain',temp:'14°',precip:55},
+  {h:'23h',icon:'ti-cloud-rain',temp:'14°',precip:60},
+  {h:'0h',icon:'ti-cloud-rain',temp:'13°',precip:65},
+  {h:'1h',icon:'ti-cloud-rain',temp:'13°',precip:55},
+  {h:'2h',icon:'ti-cloud',temp:'13°',precip:30},
+  {h:'3h',icon:'ti-cloud',temp:'12°',precip:20},
+  {h:'4h',icon:'ti-cloud',temp:'12°',precip:15},
+  {h:'5h',icon:'ti-cloud',temp:'12°',precip:10},
+  {h:'6h',icon:'ti-cloud-sun',temp:'13°',precip:5},
+  {h:'7h',icon:'ti-cloud-sun',temp:'14°',precip:5},
+  {h:'8h',icon:'ti-sun',temp:'15°',precip:0},
+  {h:'9h',icon:'ti-sun',temp:'17°',precip:0},
+  {h:'10h',icon:'ti-sun',temp:'18°',precip:0},
+  {h:'11h',icon:'ti-sun',temp:'19°',precip:0},
+  {h:'12h',icon:'ti-sun',temp:'20°',precip:0},
+  {h:'13h',icon:'ti-cloud-sun',temp:'21°',precip:5},
+];
+
+const strip = document.getElementById('hourly-strip');
+HOURS.forEach(slot => {
+  const div = document.createElement('div');
+  div.className = 'hour-slot' + (slot.now ? ' now' : '');
+  div.innerHTML = `
+    <div class="hour-lbl">${slot.h}</div>
+    <i class="ti ${slot.icon} hour-icon" aria-hidden="true" style="color:${slot.icon.includes('rain')?'#378ADD':slot.icon.includes('cloud-sun')?'#BA7517':'#EF9F27'}"></i>
+    <div class="hour-temp">${slot.temp}</div>
+    <div class="hour-precip ${slot.precip<5?'dry':''}">${slot.precip>0?slot.precip+'%':''}</div>
+  `;
+  strip.appendChild(div);
+});
+
+// ---- Chart ----
+function gen(n){
+  const t=[],h=[];
+  for(let i=0;i<n;i++){
+    const w=Math.sin((i/n)*2*Math.PI-Math.PI/2)*1.8;
+    const v=Math.round((20.5+w+(Math.random()-.5)*.5)*10)/10;
+    t.push(v);
+    h.push(Math.round(60-(v-20)*2.5+(Math.random()-.5)*3));
+  }
+  return{t,h};
+}
+
+function smooth(pts){
+  return pts.map((p,i,a)=>{
+    if(i===0) return 'M'+p[0].toFixed(1)+','+p[1].toFixed(1);
+    const prev=a[i-1];
+    const cx=((prev[0]+p[0])/2).toFixed(1);
+    return 'C'+cx+','+prev[1].toFixed(1)+' '+cx+','+p[1].toFixed(1)+' '+p[0].toFixed(1)+','+p[1].toFixed(1);
+  }).join(' ');
+}
+
+function drawChart(period){
+  const svg=document.getElementById('chart');
+  const W=svg.parentElement.clientWidth||320;
+  svg.setAttribute('viewBox','0 0 '+W+' 160');
+  let n=period==='24h'?24:period==='7j'?42:30;
+  const {t,h}=gen(n);
+  const minT=Math.min(...t)-1, maxT=Math.max(...t)+1;
+  const minH=Math.min(...h)-2, maxH=Math.max(...h)+2;
+  const L=30,R=28,T=6,B=24,iW=W-L-R,iH=160-T-B;
+  const xp=i=>L+i/(n-1)*iW;
+  const yt=v=>T+iH-(v-minT)/(maxT-minT)*iH;
+  const yh=v=>T+iH-(v-minH)/(maxH-minH)*iH;
+  const tPts=t.map((v,i)=>[xp(i),yt(v)]);
+  const hPts=h.map((v,i)=>[xp(i),yh(v)]);
+  const tPath=smooth(tPts);
+  const hPath=smooth(hPts);
+  const fill=tPath+' L'+xp(n-1).toFixed(1)+','+(T+iH)+' L'+L+','+(T+iH)+' Z';
+  const grid=[0,.25,.5,.75,1].map(f=>`<line x1="${L}" y1="${(T+iH*f).toFixed(1)}" x2="${W-R}" y2="${(T+iH*f).toFixed(1)}" stroke="rgba(0,0,0,.06)" stroke-width="1"/>`).join('');
+  let xlbls='';
+  const step=Math.max(1,Math.floor(n/6));
+  for(let i=0;i<n;i+=step){
+    let lbl='';
+    if(period==='24h'){const hh=(new Date().getHours()-n+1+i+48)%24;lbl=hh+'h';}
+    else if(period==='7j'){const day=Math.floor(i/6);const d=new Date();d.setDate(d.getDate()-6+day);lbl=['D','L','M','M','J','V','S'][d.getDay()];}
+    else{const d=new Date();d.setDate(d.getDate()-29+i);lbl=d.getDate()+'/'+(d.getMonth()+1);}
+    xlbls+=`<text x="${xp(i).toFixed(1)}" y="154" font-size="10" fill="#B5B0A8" text-anchor="middle">${lbl}</text>`;
+  }
+  const tAxLbls=[minT,maxT].map(v=>`<text x="${L-4}" y="${(yt(v)+4).toFixed(1)}" font-size="10" fill="#BA7517" text-anchor="end">${Math.round(v)}°</text>`).join('');
+  const hAxLbls=[minH,maxH].map(v=>`<text x="${W-R+4}" y="${(yh(v)+4).toFixed(1)}" font-size="10" fill="#1D9E75" text-anchor="start">${Math.round(v)}%</text>`).join('');
+  svg.innerHTML=`<defs><linearGradient id="tg" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#BA7517" stop-opacity=".12"/><stop offset="100%" stop-color="#BA7517" stop-opacity="0"/></linearGradient></defs>${grid}<path d="${fill}" fill="url(#tg)"/><path d="${tPath}" fill="none" stroke="#BA7517" stroke-width="2"/><path d="${hPath}" fill="none" stroke="#1D9E75" stroke-width="1.5" stroke-dasharray="4 3"/>${tAxLbls}${hAxLbls}${xlbls}`;
+}
+
+function show(name,temp,hum,last){
+  document.getElementById('dash').style.display='none';
+  document.getElementById('detail').style.display='block';
+  document.getElementById('d-name').textContent=name;
+  document.getElementById('d-last').textContent='Dernier relevé '+last;
+  document.getElementById('d-temp').textContent=temp?temp+'°':'—';
+  document.getElementById('d-hum').textContent=hum?hum+'%':'—';
+  document.querySelectorAll('.period-btn').forEach((b,i)=>b.classList.toggle('active',i===0));
+  setTimeout(()=>drawChart('24h'),60);
+}
+
+function back(){
+  document.getElementById('detail').style.display='none';
+  document.getElementById('dash').style.display='block';
+}
+
+function per(p,btn){
+  document.querySelectorAll('.period-btn').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  drawChart(p);
+}
+</script>
+</body>
+</html>

@@ -1,8 +1,8 @@
 # PLAN.md — maison-temp
 
-**Version** : 1.0
+**Version** : 1.1
 **Date** : 2026-05-23
-**Référence** : SPEC.md v1.0
+**Référence** : SPEC.md v1.1
 
 ---
 
@@ -20,15 +20,19 @@ maison-temp/
 │   ├── src/
 │   │   ├── App.jsx
 │   │   ├── components/
-│   │   │   ├── SondeCard.jsx      # Carte temps réel
-│   │   │   └── HistoriqueChart.jsx # Graphique Chart.js
+│   │   │   ├── MeteoCard.jsx          # Bloc météo complet (actuel + horaire + J+1)
+│   │   │   ├── HourlyStrip.jsx        # Bandeau horaire scrollable
+│   │   │   ├── SondeCard.jsx          # Card sonde temps réel
+│   │   │   └── HistoriqueChart.jsx    # Graphique Chart.js dual-axe
 │   │   └── main.jsx
 │   ├── index.html
 │   ├── package.json
 │   └── vite.config.js
 ├── nginx/
-│   └── maison-temp.conf   # Config Nginx
-├── maison-temp.service    # Systemd unit
+│   └── maison-temp.conf
+├── docs/
+│   └── ui-mockup.html     # ⬅ RÉFÉRENCE UI — ouvrir dans un navigateur avant d'implémenter
+├── maison-temp.service
 ├── .env.example
 ├── SPEC.md
 ├── PLAN.md
@@ -61,47 +65,59 @@ aiosqlite==0.20.0
 
 ## 3. Configuration
 
-**`.env` (à créer depuis `.env.example`)**
-```
-API_KEY=<token_genere>
-DATABASE_PATH=/var/lib/maison-temp/db.sqlite
-```
+Variables d'environnement (`.env`) :
 
-**Variables d'environnement Shelly** : l'URL webhook à configurer dans l'app Shelly pour chaque sonde :
 ```
-https://meteo.domaine.fr/api/releve/{slug}
-Header: X-API-Key: <token>
+API_KEY=<token généré à l'install>
+DATABASE_PATH=./data/maison.db
+PORT=8042
 ```
 
 ---
 
 ## 4. Schéma de base de données
 
-Voir SPEC.md §3 (source de vérité).
+Cf. SPEC.md §3 — schéma SQL complet.
 
 ---
 
-## 5. Décisions techniques
+## 5. Référence UI
+
+**Fichier** : `docs/ui-mockup.html`
+
+Maquette interactive HTML validée le 2026-05-23. À ouvrir dans un navigateur (mode responsive 390px) avant d'implémenter les LOTs 2 et 3.
+
+Ce que la maquette montre et que le code doit reproduire :
+- Charte couleurs complète (variables CSS dans SPEC.md §5.1)
+- Structure dashboard : météo en tête → intérieur (2 col) → extérieur (pleine largeur)
+- État hors ligne : badge rouge + card pleine largeur + icône wifi-off
+- Bloc météo : actuel + bandeau horaire scrollable + J+1 + double modèle AROME/ECMWF
+- Vue détail sonde : métriques actuelles + sélecteur période + graphique dual-axe
+- Navigation : tap card → détail, bouton retour
+
+---
+
+## 6. Décisions techniques
 
 ### Décision 1 (2026-05-23)
 
 - **Contexte** : Choix du hardware sonde
-- **Choix** : Shelly H&T Gen3 (WiFi, 4×AA ou USB-C)
-- **Pourquoi** : ESP8266 DIY déjà testé et jugé instable. Shelly = plug & play, webhook HTTP natif, pas de hub requis, ~20€/unité, autonomie 1 an sur piles.
-- **Trade-off** : Pas de batterie rechargeable intégrée → utiliser des AA rechargeables (Eneloop) ou brancher en USB-C.
+- **Choix** : Shelly H&T Gen3
+- **Pourquoi** : WiFi natif, webhook HTTP sans cloud Shelly, plug & play, ~20€/unité
+- **Trade-off** : Pas IP-certifié extérieur → boîtier abrité nécessaire pour la sonde extérieure
 
 ### Décision 2 (2026-05-23)
 
-- **Contexte** : Choix de la base de données
-- **Choix** : SQLite au démarrage
-- **Pourquoi** : Zéro infra, fichier unique, suffisant pour 4 sondes avec des relevés toutes les quelques minutes. Migration vers InfluxDB possible si les volumes grossissent ou si on veut du time-series avancé.
-- **Trade-off** : Pas de rétention automatique des données anciennes (à implémenter si besoin).
+- **Contexte** : Base de données
+- **Choix** : SQLite au départ
+- **Pourquoi** : Zéro infra, fichier unique, suffisant pour 4 sondes à relevé toutes les ~10min
+- **Trade-off** : Migration InfluxDB possible si besoin de requêtes temporelles avancées
 
 ### Décision 3 (2026-05-23)
 
-- **Contexte** : Authentification du dashboard
-- **Choix** : Dashboard en lecture libre, seul l'endpoint webhook est protégé (X-API-Key)
-- **Pourquoi** : Données non sensibles, usage familial. Simplifier l'accès mobile.
+- **Contexte** : Auth dashboard
+- **Choix** : Pas d'auth en v1 (lecture seule)
+- **Pourquoi** : Usage familial réseau local, données non sensibles. Simplifie l'accès mobile.
 - **Trade-off** : Données lisibles par quiconque connaît l'URL. Acceptable en v1.
 
 ### Décision 4 (2026-05-23)
@@ -113,11 +129,13 @@ Voir SPEC.md §3 (source de vérité).
 
 ### Décision 5 (2026-05-23)
 
-- **Contexte** : Choix de la source météo externe pour Ascain
-- **Choix** : Open-Meteo (gratuit, sans clé API, open source)
-- **Pourquoi** : Agrège 30+ modèles dont AROME (Météo-France, 1-2 km pour la France) et ECMWF IFS. Pays Basque = terrain complexe (montagne + côte) → résolution 1-2 km essentielle. Zéro coût, zéro dépendance à un compte tiers.
-- **Trade-off** : Pas de SLA garanti (usage non-commercial). Acceptable pour un usage domestique. Mitigation : cache 30 min côté serveur, fallback gracieux si l'API est indisponible.
+- **Contexte** : API météo
+- **Choix** : Open-Meteo, double modèle AROME (`best_match`) + ECMWF IFS (`ecmwf_ifs025`)
+- **Pourquoi** : Gratuit, sans clé API, open source (CC BY 4.0). AROME = résolution 1-2 km pour la France. Comparatif des deux modèles = indicateur de confiance visible.
+- **Trade-off** : Dépendance externe non maîtrisée. Cache 30min pour limiter l'impact d'une indisponibilité.
 
---- (historique)
+---
 
-_(vide pour l'instant)_
+## 7. Décisions abandonnées (historique)
+
+*(vide pour l'instant)*
