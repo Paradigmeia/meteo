@@ -14,9 +14,6 @@
 | LOT 3 | Frontend React — historique + graphiques | 🔲 À faire | — | — |
 | LOT 4 | Déploiement OVH — Nginx + systemd + HTTPS | 🔲 À faire | — | — |
 
-> **⏸ Session en pause — 2026-05-23**
-> Spec et architecture complètement validées. Prochaine session : décisions sur la **template UI** (mise en page, charte graphique, composants) avant toute implémentation.
-
 Légende : 🔲 À faire · 🔄 En cours · ✅ Livré · ⚠️ Dette technique · 🗄️ Abandonné
 
 ### Features hors LOT
@@ -26,7 +23,20 @@ Légende : 🔲 À faire · 🔄 En cours · ✅ Livré · ⚠️ Dette techniqu
 | Alertes seuil (ex: gel extérieur) | 🔲 À faire (v2) | — | — |
 | Auth dashboard (si accès public élargi) | 🔲 À faire (v2) | — | — |
 
+---
+
 ## Changelog
+
+### 2026-05-23 — Session UI template + prévisionnel horaire (spec amendée)
+
+- Maquette interactive dashboard validée (`maison-temp-mockup.html`)
+- Charte graphique actée : tons chauds crème/sable, ambre température, teal humidité (cf. SPEC.md §5)
+- Navigation actée : tap card → vue détail avec historique, bouton retour
+- Structure dashboard actée : météo en tête, sections Intérieur / Extérieur séparées
+- État hors ligne : badge "Hors ligne" + card pleine largeur, timestamp en rouge
+- Prévisionnel horaire ajouté au bloc météo : bandeau scrollable 24h (heure, icône, temp, précip)
+- SPEC.md v1.0 → v1.1 : §4.5 restructuré (météo), §5 ajouté (charte graphique et UI template)
+- Prochaine étape : LOT 1 — backend FastAPI
 
 ### 2026-05-23 — Initialisation du projet
 
@@ -35,6 +45,5 @@ Légende : 🔲 À faire · 🔄 En cours · ✅ Livré · ⚠️ Dette techniqu
 - Stratégie démarrage : 1 sonde achetée pour validation, 3 autres à suivre
 - Stack actée : FastAPI + SQLite + React + Chart.js + Nginx + OVH
 - Sous-domaine acté : `meteo.domaine.fr` (domaine principal à confirmer)
-- Ajout feature météo locale Ascain : Open-Meteo double modèle (AROME + ECMWF), affichage comparatif, cache 30min
-- **Fin de session** : spec et archi validées, prochaine session sur la template UI
+- Météo Ascain : Open-Meteo double modèle AROME + ECMWF, cache 30min
 - Rédaction SPEC.md v1.0, PLAN.md v1.0, PROJECT.md v1.0

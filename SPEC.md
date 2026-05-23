@@ -1,6 +1,6 @@
 # SPEC.md — maison-temp
 
-**Version** : 1.0
+**Version** : 1.1
 **Date** : 2026-05-23
 **Objectif principal** : Suivre en temps réel et en historique les températures et taux d'humidité de la maison (intérieur + extérieur) via un dashboard web responsive accessible en ligne.
 
@@ -20,6 +20,7 @@ Ce que le projet est :
 - Un récepteur de données provenant de sondes Shelly H&T Gen3 via webhook HTTP
 - Un stockage horodaté des relevés (température + humidité)
 - Un dashboard web mobile-first avec temps réel et historique
+- Un affichage météo local enrichi (actuel, horaire, J+1) pour Ascain
 
 Ce que le projet n'est pas :
 - Un système de domotique ou d'automatisation
@@ -87,45 +88,25 @@ Règles métier :
 Page principale, accessible sans authentification.
 
 Affichage :
-- Une carte par sonde : nom, température actuelle, humidité actuelle, heure du dernier relevé
-- Indicateur visuel si sonde hors ligne (pas de relevé depuis > 3h)
-- Responsive mobile-first (cards empilées sur mobile, grille sur desktop)
+- Bloc météo Ascain en tête de page (cf. §4.4)
+- Section "Intérieur" : cards pour les sondes intérieures
+- Section "Extérieur" : card dédiée pour la sonde extérieure
+- Une card par sonde : nom, température actuelle, humidité actuelle, heure du dernier relevé
+- Indicateur visuel si sonde hors ligne (pas de relevé depuis > 3h) : badge "Hors ligne" rouge + card pleine largeur
+- Responsive mobile-first (cards 2 colonnes sur mobile, intérieur / extérieur séparés visuellement)
+
+Navigation : tap sur une card → vue détail de la sonde (cf. §4.3)
 
 ### 4.3 Historique
 
-Par sonde, graphique de la température et de l'humidité sur une période sélectionnable :
-- 24 dernières heures (défaut)
-- 7 jours
-- 30 jours
+Vue détail par sonde, accessible par tap sur la card depuis le dashboard.
 
-### 4.4 Météo locale Ascain
+- Affiche les valeurs actuelles (température + humidité)
+- Graphique double-axe : température (axe gauche, ambre) + humidité (axe droit, teal, pointillés)
+- Période sélectionnable : 24 dernières heures (défaut) / 7 jours / 30 jours
+- Bouton retour vers le dashboard
 
-Bloc météo affiché sur le dashboard, alimenté par l'API **Open-Meteo** (gratuite, sans clé, open source).
-
-**Coordonnées fixes** : Ascain — lat `43.3667`, lon `-1.5500`
-
-**Données affichées :**
-- Météo actuelle : température, humidité, vent, état du ciel (icône)
-- Prévision J+1 : min/max température, précipitations, état du ciel
-
-**Stratégie précision — double modèle :**
-
-Le backend interroge Open-Meteo avec deux modèles simultanément :
-- `best_match` : sélectionne automatiquement AROME (Météo-France, résolution 1-2 km pour la France)
-- `ecmwf_ifs025` : modèle ECMWF IFS, référence mondiale (résolution ~25 km)
-
-Affichage : valeurs des deux modèles côte à côte. Si écart < 1°C → indicateur "bonne concordance". Si écart ≥ 1°C → indicateur "prévisions divergentes" (incite l'utilisateur à la prudence).
-
-**Fréquence de rafraîchissement** : toutes les 30 min (les modèles régionaux se mettent à jour toutes les 1-3h).
-
-**Endpoint backend** :
-```
-GET /api/meteo          → météo actuelle + J+1 (depuis cache 30min)
-```
-
-Les données sont mises en cache côté serveur pour ne pas solliciter Open-Meteo à chaque chargement de page.
-
-### 4.5 Sondes prévues
+### 4.4 Sondes prévues
 
 | Slug | Nom affiché | Type |
 |---|---|---|
@@ -136,9 +117,76 @@ Les données sont mises en cache côté serveur pour ne pas solliciter Open-Mete
 
 **Démarrage réel avec 1 sonde** (validation hardware), les 3 autres s'ajoutent en base sans changement de code.
 
+### 4.5 Météo locale Ascain
+
+Bloc météo affiché en tête du dashboard, alimenté par l'API **Open-Meteo** (gratuite, sans clé, open source).
+
+**Coordonnées fixes** : Ascain — lat `43.3667`, lon `-1.5500`
+
+**Structure du bloc (de haut en bas) :**
+
+1. **Conditions actuelles** : température, état du ciel (texte + icône), humidité, vent (vitesse + direction)
+
+2. **Prévisionnel horaire** — bandeau horizontal scrollable, prochaines 24h :
+   - Par heure : label heure, icône météo, température, probabilité de précipitations (masquée si < 5%)
+   - Heure courante mise en avant visuellement
+   - Données source : `hourly=temperature_2m,precipitation_probability,weathercode`
+
+3. **Prévision J+1** : min/max température, état du ciel, mention pluie si probabilité notable
+
+4. **Double modèle** : comparatif AROME vs ECMWF sur la max J+1
+   - Si écart < 1°C → badge "Accord"
+   - Si écart ≥ 1°C → badge "Prévisions divergentes"
+
+**Appel API :**
+
+```
+GET https://api.open-meteo.com/v1/forecast
+  ?latitude=43.3667&longitude=-1.5500
+  &current=temperature_2m,relative_humidity_2m,wind_speed_10m,wind_direction_10m,weathercode
+  &hourly=temperature_2m,precipitation_probability,weathercode
+  &daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max,weathercode
+  &models=best_match,ecmwf_ifs025
+  &forecast_days=2
+  &timezone=Europe/Paris
+```
+
+**Cache** : réponse mise en cache 30 min côté backend pour éviter les appels répétés.
+
 ---
 
-## 5. Sécurité / Auth / Compliance
+## 5. Charte graphique & UI Template
+
+### 5.1 Ambiance
+
+Chaud et domestic. Tons crème/sable, convivial, sans être chargé.
+
+| Élément | Valeur |
+|---|---|
+| Fond général | `#F7F3EE` (crème chaud) |
+| Fond cards | `#FFF9F2` (blanc cassé) |
+| Fond sections / météo | `#EDE6DB` (sable) |
+| Accent température | `#BA7517` / `#EF9F27` (ambre) |
+| Accent humidité | `#1D9E75` (teal) |
+| Accent pluie | `#378ADD` (bleu) |
+| Erreur / hors ligne | `#A32D2D` / `#FCEBEB` (rouge) |
+| Texte principal | `#1A1714` |
+| Texte secondaire | `#6B6560` |
+| Texte tertiaire / timestamps | `#B5B0A8` |
+
+### 5.2 Navigation
+
+- Une seule page (pas de routing)
+- Dashboard par défaut
+- Tap card sonde → vue détail avec historique (animation retour via bouton)
+
+### 5.3 Maquette de référence
+
+Fichier `maison-temp-mockup.html` — validée le 2026-05-23. Constitue la référence visuelle pour l'implémentation des LOTs 2 et 3.
+
+---
+
+## 6. Sécurité / Auth / Compliance
 
 - Endpoint `/api/releve/{slug}` protégé par `X-API-Key` (token généré à l'install, stocké dans `.env`)
 - Dashboard en lecture seule, pas d'authentification nécessaire en v1 (réseau familial, données non sensibles)
@@ -147,7 +195,7 @@ Les données sont mises en cache côté serveur pour ne pas solliciter Open-Mete
 
 ---
 
-## 6. Déploiement & Production
+## 7. Déploiement & Production
 
 - Serveur OVH dédié, géré par Claude Code
 - Process : `systemd` service `maison-temp.service`
