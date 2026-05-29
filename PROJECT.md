@@ -9,7 +9,7 @@
 
 | LOT | Contenu | Statut | PR | Branch |
 |---|---|---|---|---|
-| LOT 1 | Backend FastAPI — réception webhooks + SQLite | 🔲 À faire | — | — |
+| LOT 1 | Backend FastAPI — réception webhooks + SQLite | ✅ Livré | #5 | lot1-backend |
 | LOT 2 | Frontend React — dashboard temps réel | 🔲 À faire | — | — |
 | LOT 3 | Frontend React — historique + graphiques | 🔲 À faire | — | — |
 | LOT 4 | Déploiement OVH — Nginx + systemd + HTTPS | 🔲 À faire | — | — |
@@ -27,6 +27,13 @@ Légende : 🔲 À faire · 🔄 En cours · ✅ Livré · ⚠️ Dette techniqu
 
 ## Changelog
 
+### 2026-05-29 — LOT 1 livré
+
+- Backend FastAPI opérationnel (PR #5, mergée)
+- 4 endpoints : `POST /api/releve/{slug}`, `GET /api/sondes`, `GET /api/releves/{slug}`, `GET /api/meteo`
+- SQLite + 4 sondes pré-remplies, auth X-API-Key, proxy Open-Meteo avec cache 30min
+- Prochaine étape : LOT 2 — dashboard React
+
 ### 2026-05-23 — Session UI template + prévisionnel horaire (spec amendée)
 
 - Maquette interactive dashboard validée (`maison-temp-mockup.html`)
@@ -36,7 +43,7 @@ Légende : 🔲 À faire · 🔄 En cours · ✅ Livré · ⚠️ Dette techniqu
 - État hors ligne : badge "Hors ligne" + card pleine largeur, timestamp en rouge
 - Prévisionnel horaire ajouté au bloc météo : bandeau scrollable 24h (heure, icône, temp, précip)
 - SPEC.md v1.0 → v1.1 : §4.5 restructuré (météo), §5 ajouté (charte graphique et UI template)
-- Prochaine étape : LOT 1 — backend FastAPI
+- Prochaine étape : LOT 2 — dashboard React
 
 ### 2026-05-23 — Initialisation du projet
 
