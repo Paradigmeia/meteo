@@ -30,7 +30,7 @@ async def init_db():
                 sonde_id     INTEGER NOT NULL REFERENCES sondes(id),
                 temperature  REAL NOT NULL,
                 humidite     REAL,
-                recu_le      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+                recu_le      TEXT NOT NULL
             );
 
             CREATE INDEX IF NOT EXISTS idx_releves_sonde_date ON releves(sonde_id, recu_le);
