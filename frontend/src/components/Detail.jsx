@@ -30,7 +30,7 @@ export default function Detail({ slug, nom, onBack }) {
         <div className="metric">
           <div className="metric-label">Humidité</div>
           <div className="metric-val" style={{ color: '#1D9E75' }}>
-            {last ? `${last.humidite}%` : '—'}
+            {last && last.humidite != null ? `${last.humidite}%` : '—'}
           </div>
         </div>
       </div>
