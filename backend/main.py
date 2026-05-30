@@ -55,7 +55,7 @@ app = FastAPI(title="maison-temp", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["https://meteo.paradigme.me"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
