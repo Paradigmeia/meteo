@@ -12,7 +12,7 @@
 | LOT 1 | Backend FastAPI — réception webhooks + SQLite | ✅ Livré | #5 | lot1-backend |
 | LOT 2 | Frontend React — dashboard temps réel | ✅ Livré | #6 | lot2-frontend |
 | LOT 3 | Frontend React — historique + graphiques | 🗄️ Abandonné — absorbé par LOT 2 (2026-05-30) | — | — |
-| LOT 4 | Déploiement OVH — Nginx + systemd + HTTPS | 🔲 À faire | — | — |
+| LOT 4 | Déploiement OVH — Nginx + systemd + HTTPS | ✅ Livré | #7 | lot4-deploy |
 
 Légende : 🔲 À faire · 🔄 En cours · ✅ Livré · ⚠️ Dette technique · 🗄️ Abandonné
 
@@ -26,6 +26,17 @@ Légende : 🔲 À faire · 🔄 En cours · ✅ Livré · ⚠️ Dette techniqu
 ---
 
 ## Changelog
+
+### 2026-05-30 — LOT 4 livré + déployé
+
+- Déploiement OVH opérationnel (PR #7, mergée)
+- `https://meteo.paradigme.me` accessible, certificat Let's Encrypt valide (expire 2026-08-28)
+- Nginx : reverse proxy `/api/` → FastAPI :8042, build React statique, HSTS, redirection HTTP→HTTPS
+- systemd `maison-temp.service` actif, démarrage auto au boot, hardening (`NoNewPrivileges`, `ProtectSystem`, `PrivateTmp`)
+- CORS restreint à `https://meteo.paradigme.me`
+- `scripts/install.sh` et `scripts/update.sh` opérationnels
+- Token API généré et stocké dans `backend/.env` (chmod 600)
+- Smoke tests post-déploiement : webhook, API sondes, HTTPS → tous verts
 
 ### 2026-05-30 — LOT 2 livré
 

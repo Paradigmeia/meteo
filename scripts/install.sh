@@ -6,7 +6,8 @@ REPO=/home/debian/meteo
 
 echo "=== Vérification des prérequis ==="
 for cmd in nginx certbot python3 node npm; do
-    command -v $cmd &>/dev/null || { echo "✗ $cmd manquant"; exit 1; }
+    command -v $cmd &>/dev/null || sudo bash -c "command -v $cmd" &>/dev/null || \
+        { echo "✗ $cmd manquant"; exit 1; }
 done
 echo "✓ Prérequis OK"
 
