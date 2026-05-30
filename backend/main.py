@@ -17,7 +17,6 @@ METEO_URL = (
     "&current=temperature_2m,relative_humidity_2m,wind_speed_10m,wind_direction_10m,weathercode"
     "&hourly=temperature_2m,precipitation_probability,weathercode"
     "&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max,weathercode"
-    "&models=best_match,ecmwf_ifs025"
     "&forecast_days=2"
     "&timezone=Europe%2FParis"
 )
