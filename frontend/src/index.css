@@ -1,0 +1,13 @@
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: -apple-system, 'Helvetica Neue', sans-serif;
+  background: #F7F3EE;
+  display: flex;
+  justify-content: center;
+  padding: 2rem 1rem;
+  min-height: 100vh;
+  color: #1A1714;
+}
+
+#root { width: 100%; max-width: 390px; }
