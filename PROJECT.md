@@ -11,7 +11,7 @@
 |---|---|---|---|---|
 | LOT 1 | Backend FastAPI — réception webhooks + SQLite | ✅ Livré | #5 | lot1-backend |
 | LOT 2 | Frontend React — dashboard temps réel | ✅ Livré | #6 | lot2-frontend |
-| LOT 3 | Frontend React — historique + graphiques | ⚠️ Périmètre à revoir (voir changelog 2026-05-30) | — | — |
+| LOT 3 | Frontend React — historique + graphiques | 🗄️ Abandonné — absorbé par LOT 2 (2026-05-30) | — | — |
 | LOT 4 | Déploiement OVH — Nginx + systemd + HTTPS | 🔲 À faire | — | — |
 
 Légende : 🔲 À faire · 🔄 En cours · ✅ Livré · ⚠️ Dette technique · 🗄️ Abandonné
@@ -35,7 +35,7 @@ Légende : 🔲 À faire · 🔄 En cours · ✅ Livré · ⚠️ Dette techniqu
 - `Detail` : graphique SVG dual-axis température + humidité, sélecteur 24h / 7j / 30d
 - Polling 30s sur les 3 hooks (`useSondes`, `useMeteo`, `useReleves`), StrictMode-safe
 - Layout mobile-first 390px, charte crème/ambre/teal fidèle au mockup validé
-- **Note périmètre** : la vue Détail (graphique + sélecteur historique) a été livrée dans ce LOT alors qu'elle était scopée LOT 3. À trancher : soit réaligner LOT 3 sur le contenu résiduel (ex: export, comparaison multi-sondes), soit le clôturer comme absorbé par LOT 2.
+- **LOT 3 clôturé** : la vue Détail avec graphique SVG dual-axis et sélecteur 24h/7j/30d couvre l'intégralité du scope LOT 3 — absorbé par ce LOT.
 - Prochaine étape : LOT 3 (périmètre à revalider) puis LOT 4 — déploiement OVH
 
 ### 2026-05-29 — LOT 1 livré
