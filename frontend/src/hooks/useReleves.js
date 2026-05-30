@@ -7,13 +7,21 @@ export function useReleves(slug, period) {
 
   useEffect(() => {
     if (!slug) return
-    async function fetch() {
+    let cancelled = false
+    let timer
+
+    async function load() {
       try {
         const res = await window.fetch(`${API}/api/releves/${slug}?period=${period}`)
-        if (res.ok) setReleves(await res.json())
+        if (res.ok && !cancelled) setReleves(await res.json())
       } catch {}
+      if (!cancelled) timer = setTimeout(load, 30_000)
     }
-    fetch()
+    load()
+    return () => {
+      cancelled = true
+      clearTimeout(timer)
+    }
   }, [slug, period])
 
   return { releves }

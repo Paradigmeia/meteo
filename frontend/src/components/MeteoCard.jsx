@@ -31,7 +31,8 @@ export default function MeteoCard({ meteo }) {
   const now = new Date()
 
   // Prochaines 24h à partir de maintenant
-  const startIdx = hourlyTimes.findIndex(t => new Date(t) >= now)
+  const rawIdx = hourlyTimes.findIndex(t => new Date(t) >= now)
+  const startIdx = rawIdx < 0 ? 0 : rawIdx
   const slots = hourlyTimes.slice(startIdx, startIdx + 24).map((t, i) => ({
     time: t,
     temperature_2m: meteo.hourly.temperature_2m[startIdx + i],
@@ -44,10 +45,6 @@ export default function MeteoCard({ meteo }) {
   const tomorrowMin = daily?.temperature_2m_min?.[tomorrowIdx]
   const tomorrowMax = daily?.temperature_2m_max?.[tomorrowIdx]
   const tomorrowCode = daily?.weathercode?.[tomorrowIdx]
-
-  // Modèles : best_match et ecmwf
-  const aromeMax = daily?.temperature_2m_max?.[tomorrowIdx]
-  const ecmwfMax = meteo.daily_units ? null : null // open-meteo renvoie best_match seulement dans cette URL simplifiée
 
   return (
     <div className="meteo-card">

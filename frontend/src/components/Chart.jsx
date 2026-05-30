@@ -10,14 +10,12 @@ export default function Chart({ releves }) {
   const W = 340, H = 140, PAD = 12
 
   const temps = releves.map(r => r.temperature)
-  const hums = releves.map(r => r.humidite)
+  const humReleves = releves.filter(r => r.humidite != null)
 
   const minT = Math.min(...temps), maxT = Math.max(...temps)
-  const minH = Math.min(...hums), maxH = Math.max(...hums)
 
   const xOf = i => PAD + (i / (releves.length - 1)) * (W - 2 * PAD)
   const yOfT = v => H - PAD - ((v - minT) / (maxT - minT || 1)) * (H - 2 * PAD)
-  const yOfH = v => H - PAD - ((v - minH) / (maxH - minH || 1)) * (H - 2 * PAD)
 
   function smooth(pts) {
     return pts.map((p, i) => {
@@ -29,12 +27,21 @@ export default function Chart({ releves }) {
   }
 
   const tempPts = releves.map((_, i) => [xOf(i), yOfT(temps[i])])
-  const humPts = releves.map((_, i) => [xOf(i), yOfH(hums[i])])
+
+  let humPath = null
+  if (humReleves.length >= 2) {
+    const hums = humReleves.map(r => r.humidite)
+    const minH = Math.min(...hums), maxH = Math.max(...hums)
+    const yOfH = v => H - PAD - ((v - minH) / (maxH - minH || 1)) * (H - 2 * PAD)
+    const humIdxMap = humReleves.map(r => releves.indexOf(r))
+    const humPts = humIdxMap.map((ri, i) => [xOf(ri), yOfH(hums[i])])
+    humPath = smooth(humPts)
+  }
 
   return (
     <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', height: H }}>
       <path d={smooth(tempPts)} fill="none" stroke="#BA7517" strokeWidth="2" strokeLinejoin="round" />
-      <path d={smooth(humPts)} fill="none" stroke="#1D9E75" strokeWidth="2" strokeLinejoin="round" strokeDasharray="4 2" />
+      {humPath && <path d={humPath} fill="none" stroke="#1D9E75" strokeWidth="2" strokeLinejoin="round" strokeDasharray="4 2" />}
     </svg>
   )
 }

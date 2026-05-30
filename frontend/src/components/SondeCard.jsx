@@ -23,7 +23,7 @@ export default function SondeCard({ sonde, fullWidth, onClick }) {
             {dr ? (
               <>
                 <span className="sonde-temp">{dr.temperature.toFixed(1)}°</span>
-                <span className="sonde-hum"><i className="ti ti-droplet" style={{ color: '#1D9E75' }} />{dr.humidite}%</span>
+                {dr.humidite != null && <span className="sonde-hum"><i className="ti ti-droplet" style={{ color: '#1D9E75' }} />{dr.humidite}%</span>}
               </>
             ) : <span style={{ color: '#B5B0A8', fontSize: 14 }}>Aucune donnée</span>}
           </div>
@@ -38,10 +38,12 @@ export default function SondeCard({ sonde, fullWidth, onClick }) {
           {dr ? (
             <>
               <div className="sonde-temp">{dr.temperature.toFixed(1)}°</div>
-              <div className="sonde-hum">
-                <i className="ti ti-droplet" style={{ color: '#1D9E75' }} />
-                {dr.humidite}%
-              </div>
+              {dr.humidite != null && (
+                <div className="sonde-hum">
+                  <i className="ti ti-droplet" style={{ color: '#1D9E75' }} />
+                  {dr.humidite}%
+                </div>
+              )}
             </>
           ) : <div style={{ color: '#B5B0A8', fontSize: 14 }}>Aucune donnée</div>}
           {ago && <div className="sonde-ago">{ago}</div>}

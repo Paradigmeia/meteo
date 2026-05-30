@@ -6,16 +6,21 @@ export function useSondes() {
   const [sondes, setSondes] = useState([])
 
   useEffect(() => {
+    let cancelled = false
     let timer
-    async function fetch() {
+
+    async function load() {
       try {
         const res = await window.fetch(`${API}/api/sondes`)
-        if (res.ok) setSondes(await res.json())
+        if (res.ok && !cancelled) setSondes(await res.json())
       } catch {}
-      timer = setTimeout(fetch, 30_000)
+      if (!cancelled) timer = setTimeout(load, 30_000)
     }
-    fetch()
-    return () => clearTimeout(timer)
+    load()
+    return () => {
+      cancelled = true
+      clearTimeout(timer)
+    }
   }, [])
 
   return { sondes }
