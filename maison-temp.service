@@ -9,6 +9,9 @@ EnvironmentFile=/home/debian/meteo/backend/.env
 ExecStart=/home/debian/meteo/backend/venv/bin/uvicorn main:app --host 127.0.0.1 --port 8042
 Restart=on-failure
 RestartSec=5
+NoNewPrivileges=true
+ProtectSystem=full
+PrivateTmp=true
 
 [Install]
 WantedBy=multi-user.target

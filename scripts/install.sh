@@ -4,6 +4,12 @@ set -e
 
 REPO=/home/debian/meteo
 
+echo "=== Vérification des prérequis ==="
+for cmd in nginx certbot python3 node npm; do
+    command -v $cmd &>/dev/null || { echo "✗ $cmd manquant"; exit 1; }
+done
+echo "✓ Prérequis OK"
+
 echo "=== 1. Backend : venv + dépendances ==="
 cd "$REPO/backend"
 python3 -m venv venv
@@ -15,7 +21,9 @@ if [ ! -f .env ]; then
     cp "$REPO/.env.example" .env
     TOKEN=$(python3 -c "import secrets; print(secrets.token_hex(32))")
     sed -i "s/change-me-with-a-strong-random-token/$TOKEN/" .env
-    echo "⚠️  .env créé avec un token aléatoire — vérifier DATABASE_PATH si besoin"
+    chmod 600 .env
+    echo "⚠️  .env créé — token API :"
+    echo "   $TOKEN"
 fi
 mkdir -p data
 
@@ -24,17 +32,31 @@ cd "$REPO/frontend"
 npm ci --silent
 npm run build
 
-echo "=== 4. Nginx ==="
-sudo cp "$REPO/nginx/maison-temp.conf" /etc/nginx/sites-available/maison-temp
+# Bootstrap : conf HTTP-only d'abord pour que Certbot puisse valider
+echo "=== 4a. Nginx : conf HTTP-only (bootstrap Certbot) ==="
+cat > /tmp/maison-temp-bootstrap.conf <<'NGINX'
+server {
+    listen 80;
+    server_name meteo.paradigme.me;
+    location /.well-known/acme-challenge/ { root /var/www/html; }
+    location / { return 301 https://$host$request_uri; }
+}
+NGINX
+sudo cp /tmp/maison-temp-bootstrap.conf /etc/nginx/sites-available/maison-temp
 sudo ln -sf /etc/nginx/sites-available/maison-temp /etc/nginx/sites-enabled/maison-temp
 sudo nginx -t
 sudo systemctl reload nginx
 
-echo "=== 5. Certbot ==="
-sudo certbot certonly --webroot -w /var/www/html -d meteo.paradigme.me --non-interactive --agree-tos -m admin@paradigme.me
+echo "=== 4b. Certbot ==="
+sudo certbot certonly --webroot -w /var/www/html -d meteo.paradigme.me \
+    --non-interactive --agree-tos -m admin@paradigme.me
+
+echo "=== 4c. Nginx : conf complète HTTPS ==="
+sudo cp "$REPO/nginx/maison-temp.conf" /etc/nginx/sites-available/maison-temp
+sudo nginx -t
 sudo systemctl reload nginx
 
-echo "=== 6. systemd ==="
+echo "=== 5. systemd ==="
 sudo cp "$REPO/maison-temp.service" /etc/systemd/system/maison-temp.service
 sudo systemctl daemon-reload
 sudo systemctl enable maison-temp
@@ -50,4 +72,8 @@ curl -sf https://meteo.paradigme.me > /dev/null && echo "✓ HTTPS accessible" |
 echo ""
 echo "=== Terminé ==="
 echo "Logs : journalctl -u maison-temp -f"
-echo "Token API : grep API_KEY $REPO/backend/.env"
+echo "Test webhook :"
+echo "  curl -X POST https://meteo.paradigme.me/api/releve/salon \\"
+echo "    -H \"X-API-Key: \$(grep API_KEY $REPO/backend/.env | cut -d= -f2)\" \\"
+echo "    -H \"Content-Type: application/json\" \\"
+echo "    -d '{\"temp\":21.5,\"hum\":55}'"
