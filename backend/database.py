@@ -28,7 +28,7 @@ async def init_db():
             CREATE TABLE IF NOT EXISTS releves (
                 id           INTEGER PRIMARY KEY AUTOINCREMENT,
                 sonde_id     INTEGER NOT NULL REFERENCES sondes(id),
-                temperature  REAL NOT NULL,
+                temperature  REAL,
                 humidite     REAL,
                 recu_le      TEXT NOT NULL
             );
