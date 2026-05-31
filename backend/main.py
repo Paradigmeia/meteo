@@ -60,6 +60,37 @@ app.add_middleware(
 )
 
 
+@app.get("/")
+@app.get("/health")
+async def health():
+    return {"status": "ok"}
+
+
+@app.get("/api/releve/{slug}", status_code=200)
+async def get_releve(slug: str, key: str, temp: float | None = None, hum: float | None = None):
+    """Endpoint GET pour les webhooks Shelly (URL action).
+    Le Shelly H&T Gen3 envoie temp et humidité sur deux events distincts.
+    Usage temp  : /api/releve/salon?temp=${ev.tC}&key=TOKEN
+    Usage hum   : /api/releve/salon?hum=${ev.h}&key=TOKEN
+    """
+    if not API_KEY or not secrets.compare_digest(key, API_KEY):
+        raise HTTPException(status_code=401, detail="Clé API invalide")
+    if temp is None and hum is None:
+        raise HTTPException(status_code=422, detail="Au moins temp ou hum est requis")
+    async with get_db() as db:
+        async with db.execute("SELECT id FROM sondes WHERE slug = ?", (slug,)) as cur:
+            row = await cur.fetchone()
+        if row is None:
+            raise HTTPException(status_code=404, detail=f"Sonde '{slug}' inconnue")
+        sonde_id = row[0]
+        await db.execute(
+            "INSERT INTO releves (sonde_id, temperature, humidite, recu_le) VALUES (?, ?, ?, ?)",
+            (sonde_id, temp, hum, _now_iso()),
+        )
+        await db.commit()
+    return {"ok": True}
+
+
 @app.post("/api/releve/{slug}", status_code=200)
 async def post_releve(slug: str, payload: ReleverPayload, _: str = Depends(require_api_key)):
     async with get_db() as db:
