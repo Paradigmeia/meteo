@@ -87,6 +87,7 @@ POST /api/releve/{slug}
 Headers : X-API-Key: TOKEN
 Body JSON : { "temp": 21.4, "hum": 58.2 }
 ```
+> **Limite** : `temp` est requis dans le body POST (`ReleverPayload.temp: float`). Un relevé hum-only n'est pas postable via ce endpoint — seul le GET le supporte. Cohérent avec l'usage attendu (POST = tests / intégration externe, GET = sondes Shelly).
 
 Règles métier communes :
 - Le `slug` dans l'URL identifie la sonde (ex: `chambre-parents`)
@@ -146,9 +147,9 @@ Bloc météo affiché en tête du dashboard, alimenté par l'API **Open-Meteo** 
 
 3. **Prévision J+1** : min/max température, état du ciel, mention pluie si probabilité notable
 
-4. **Double modèle** : comparatif AROME vs ECMWF sur la max J+1
-   - Si écart < 1°C → badge "Accord"
-   - Si écart ≥ 1°C → badge "Prévisions divergentes"
+4. ~~**Double modèle** : comparatif AROME vs ECMWF sur la max J+1~~ — **reporté en v2**
+   Le paramètre `&models=` retourne des champs préfixés (`temperature_2m_best_match`, etc.)
+   incompatibles avec le parsing standard du frontend. Supprimé en v1 (cf. PLAN.md décision 8).
 
 **Appel API :**
 
@@ -158,7 +159,6 @@ GET https://api.open-meteo.com/v1/forecast
   &current=temperature_2m,relative_humidity_2m,wind_speed_10m,wind_direction_10m,weathercode
   &hourly=temperature_2m,precipitation_probability,weathercode
   &daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max,weathercode
-  &models=best_match,ecmwf_ifs025
   &forecast_days=2
   &timezone=Europe/Paris
 ```
