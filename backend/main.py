@@ -112,19 +112,31 @@ async def get_sondes():
     async with get_db() as db:
         async with db.execute(
             """SELECT s.slug, s.nom, s.actif,
-                      r.temperature, r.humidite, r.recu_le
+                      rt.temperature, rt.recu_le AS recu_le_temp,
+                      rh.humidite,    rh.recu_le AS recu_le_hum
                FROM sondes s
-               LEFT JOIN releves r ON r.id = (
-                   SELECT id FROM releves WHERE sonde_id = s.id ORDER BY recu_le DESC LIMIT 1
+               LEFT JOIN releves rt ON rt.id = (
+                   SELECT id FROM releves
+                   WHERE sonde_id = s.id AND temperature IS NOT NULL
+                   ORDER BY recu_le DESC LIMIT 1
+               )
+               LEFT JOIN releves rh ON rh.id = (
+                   SELECT id FROM releves
+                   WHERE sonde_id = s.id AND humidite IS NOT NULL
+                   ORDER BY recu_le DESC LIMIT 1
                )
                ORDER BY s.id"""
         ) as cur:
             rows = await cur.fetchall()
 
     result = []
-    for slug, nom, actif, temp, hum, recu_le in rows:
+    for slug, nom, actif, temp, recu_le_temp, hum, recu_le_hum in rows:
         dernier = None
+        recu_le = recu_le_temp or recu_le_hum
         if recu_le is not None:
+            # Prend le timestamp le plus récent des deux
+            if recu_le_temp and recu_le_hum:
+                recu_le = recu_le_temp if recu_le_temp > recu_le_hum else recu_le_hum
             dernier = DernierReleve(
                 temperature=temp,
                 humidite=hum,
