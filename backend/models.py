@@ -22,6 +22,6 @@ class SondeOut(BaseModel):
 
 
 class ReleverOut(BaseModel):
-    temperature: float
+    temperature: Optional[float]
     humidite: Optional[float]
     recu_le: datetime
