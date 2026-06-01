@@ -27,6 +27,16 @@ Légende : 🔲 À faire · 🔄 En cours · ✅ Livré · ⚠️ Dette techniqu
 
 ## Changelog
 
+### 2026-06-01 — Hotfixes intégration Shelly H&T Gen3 (commits directs sur main, rattrapage §4.1 workflow)
+
+- **Endpoint GET webhook** : ajout de `GET /api/releve/{slug}?temp=X&hum=Y&key=TOKEN` — le firmware Shelly HTG3/1.7.5 ne supporte que les URL actions GET (SPEC §4.1 mise à jour)
+- **Events séparés** : le Shelly envoie temp et hum sur deux events distincts → `temp` et `hum` tous les deux optionnels, deux actions Shelly à configurer
+- **Migration DB** : `temperature` rendue nullable (était `NOT NULL`) pour accepter les inserts hum-only
+- **Fix `/api/sondes`** : le `dernier_releve` agrège maintenant le dernier temp ET la dernière hum via deux LEFT JOIN séparés
+- **Fix `Detail.jsx`** : `lastTemp` et `lastHum` cherchés séparément dans les relevés (évite l'affichage `—` quand la dernière ligne est hum-only)
+- **Fix Open-Meteo** : suppression du paramètre `&models=` qui préfixait les noms de champs et cassait l'affichage météo (PLAN.md décision 8)
+- SPEC.md et PLAN.md mis à jour (décisions 6, 7, 8)
+
 ### 2026-05-30 — LOT 4 livré + déployé
 
 - Déploiement OVH opérationnel (PR #7, mergée)

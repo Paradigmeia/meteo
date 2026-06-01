@@ -134,6 +134,27 @@ Ce que la maquette montre et que le code doit reproduire :
 - **Pourquoi** : Gratuit, sans clé API, open source (CC BY 4.0). AROME = résolution 1-2 km pour la France. Comparatif des deux modèles = indicateur de confiance visible.
 - **Trade-off** : Dépendance externe non maîtrisée. Cache 30min pour limiter l'impact d'une indisponibilité.
 
+### Décision 6 (2026-06-01)
+
+- **Contexte** : Intégration réelle du Shelly H&T Gen3 (firmware HTG3/1.7.5)
+- **Choix** : Endpoint GET `POST /api/releve/{slug}` complété par `GET /api/releve/{slug}?temp=X&hum=Y&key=TOKEN`
+- **Pourquoi** : Le firmware Shelly ne supporte que les URL actions GET, et envoie temp et humidité sur deux events distincts. `${ev.h}` est null sur l'event température et vice-versa. Solution : deux actions Shelly séparées ("Changement de température" / "Changement d'humidité"), `temp` et `hum` optionnels en query param.
+- **Trade-off** : La clé API est dans l'URL (visible dans les logs Nginx). Acceptable pour usage domestique — le dashboard est déjà en lecture libre.
+
+### Décision 7 (2026-06-01)
+
+- **Contexte** : Schéma de la table `releves` face aux events séparés Shelly
+- **Choix** : `temperature` et `humidite` sont toutes deux `NULLABLE` en base
+- **Pourquoi** : Chaque event Shelly ne porte qu'une valeur. Forcer `NOT NULL` sur `temperature` bloquait les inserts hum-only. L'affichage (backend `/api/sondes` et frontend `Detail.jsx`) agrège le dernier temp et la dernière hum séparément.
+- **Trade-off** : Requêtes légèrement plus complexes (deux LEFT JOIN ou deux `.find()` au lieu d'un). Négligeable à l'échelle de ce projet.
+
+### Décision 8 (2026-06-01)
+
+- **Contexte** : Paramètre `&models=` dans l'URL Open-Meteo
+- **Choix** : Suppression du paramètre `&models=best_match,ecmwf_ifs025`
+- **Pourquoi** : Avec ce paramètre, l'API retourne les champs préfixés (`temperature_2m_best_match`, etc.) au lieu des noms standard (`temperature_2m`). Le frontend ne gérait pas ces préfixes → données météo manquantes.
+- **Trade-off** : La comparaison AROME vs ECMWF (badge "Accord/Divergentes") n'est plus disponible en v1. Peut être réactivée en v2 avec parsing dédié.
+
 ---
 
 ## 7. Décisions abandonnées (historique)

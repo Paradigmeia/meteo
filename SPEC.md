@@ -56,9 +56,9 @@ CREATE TABLE sondes (
 CREATE TABLE releves (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
     sonde_id     INTEGER NOT NULL REFERENCES sondes(id),
-    temperature  REAL NOT NULL,      -- °C
-    humidite     REAL,               -- % HR (nullable, Shelly envoie toujours les deux)
-    recu_le      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    temperature  REAL,               -- °C (nullable : le Shelly H&T Gen3 envoie temp et hum sur deux events distincts)
+    humidite     REAL,               -- % HR (nullable : même raison)
+    recu_le      TEXT NOT NULL       -- ISO 8601 UTC, ex: 2026-06-01T17:51:05.123456+00:00
 );
 
 CREATE INDEX idx_releves_sonde_date ON releves(sonde_id, recu_le);
@@ -70,18 +70,31 @@ CREATE INDEX idx_releves_sonde_date ON releves(sonde_id, recu_le);
 
 ### 4.1 Réception des données (webhook entrant)
 
-Chaque Shelly H&T Gen3 est configuré pour appeler une URL à chaque relevé :
+Le Shelly H&T Gen3 (firmware HTG3/1.7.5) envoie temp et humidité sur **deux events distincts**
+et ne supporte que les URL actions GET. Deux endpoints coexistent :
 
+**Endpoint GET** (utilisé par les sondes Shelly — URL actions) :
+```
+GET /api/releve/{slug}?temp=${ev.tC}&key=TOKEN   ← event température
+GET /api/releve/{slug}?hum=${ev.h}&key=TOKEN     ← event humidité (action séparée)
+```
+- `temp` et `hum` sont tous les deux optionnels, mais au moins l'un doit être présent
+- La clé API est passée en query param `key`
+
+**Endpoint POST** (usage générique / tests) :
 ```
 POST /api/releve/{slug}
+Headers : X-API-Key: TOKEN
 Body JSON : { "temp": 21.4, "hum": 58.2 }
 ```
+> **Limite** : `temp` est requis dans le body POST (`ReleverPayload.temp: float`). Un relevé hum-only n'est pas postable via ce endpoint — seul le GET le supporte. Cohérent avec l'usage attendu (POST = tests / intégration externe, GET = sondes Shelly).
 
-Règles métier :
+Règles métier communes :
 - Le `slug` dans l'URL identifie la sonde (ex: `chambre-parents`)
 - Si le slug est inconnu → 404
-- La sonde Shelly envoie un relevé si variation ≥ 0,5°C ou 5% humidité, et au maximum toutes les 2h inconditionnellement
-- Un token d'authentification simple (header `X-API-Key`) protège l'endpoint
+- Le Shelly envoie un relevé si variation ≥ 0,5°C ou 5% humidité, et au maximum toutes les 2h inconditionnellement
+- Chaque ligne en base peut contenir temp seule, hum seule, ou les deux
+- L'affichage agrège le dernier relevé de temp et le dernier relevé de hum séparément
 
 ### 4.2 Dashboard temps réel
 
@@ -134,9 +147,9 @@ Bloc météo affiché en tête du dashboard, alimenté par l'API **Open-Meteo** 
 
 3. **Prévision J+1** : min/max température, état du ciel, mention pluie si probabilité notable
 
-4. **Double modèle** : comparatif AROME vs ECMWF sur la max J+1
-   - Si écart < 1°C → badge "Accord"
-   - Si écart ≥ 1°C → badge "Prévisions divergentes"
+4. ~~**Double modèle** : comparatif AROME vs ECMWF sur la max J+1~~ — **reporté en v2**
+   Le paramètre `&models=` retourne des champs préfixés (`temperature_2m_best_match`, etc.)
+   incompatibles avec le parsing standard du frontend. Supprimé en v1 (cf. PLAN.md décision 8).
 
 **Appel API :**
 
@@ -146,7 +159,6 @@ GET https://api.open-meteo.com/v1/forecast
   &current=temperature_2m,relative_humidity_2m,wind_speed_10m,wind_direction_10m,weathercode
   &hourly=temperature_2m,precipitation_probability,weathercode
   &daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max,weathercode
-  &models=best_match,ecmwf_ifs025
   &forecast_days=2
   &timezone=Europe/Paris
 ```
