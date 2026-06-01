@@ -9,7 +9,9 @@ export default function Detail({ slug, nom, onBack }) {
   const [period, setPeriod] = useState('24h')
   const { releves } = useReleves(slug, period)
 
-  const last = releves[releves.length - 1]
+  const lastTemp = [...releves].reverse().find(r => r.temperature != null)
+  const lastHum  = [...releves].reverse().find(r => r.humidite != null)
+  const lastAny  = releves[releves.length - 1]
 
   return (
     <>
@@ -24,20 +26,20 @@ export default function Detail({ slug, nom, onBack }) {
         <div className="metric">
           <div className="metric-label">Température</div>
           <div className="metric-val" style={{ color: '#BA7517' }}>
-            {last ? `${last.temperature.toFixed(1)}°` : '—'}
+            {lastTemp ? `${lastTemp.temperature.toFixed(1)}°` : '—'}
           </div>
         </div>
         <div className="metric">
           <div className="metric-label">Humidité</div>
           <div className="metric-val" style={{ color: '#1D9E75' }}>
-            {last && last.humidite != null ? `${last.humidite}%` : '—'}
+            {lastHum ? `${lastHum.humidite}%` : '—'}
           </div>
         </div>
       </div>
 
-      {last && (
+      {lastAny && (
         <p style={{ fontSize: 12, color: '#B5B0A8', marginBottom: '1rem' }}>
-          Dernière mesure {formatAgo(last.recu_le)}
+          Dernière mesure {formatAgo(lastAny.recu_le)}
         </p>
       )}
 
