@@ -140,7 +140,8 @@ async def get_sondes():
             dernier = DernierReleve(
                 temperature=temp,
                 humidite=hum,
-                recu_le=_parse_recu_le(recu_le),
+                recu_le=_parse_recu_le(recu_le_temp or recu_le_hum),
+                recu_le_hum=_parse_recu_le(recu_le_hum) if recu_le_hum else None,
             )
         result.append(SondeOut(slug=slug, nom=nom, actif=actif, dernier_releve=dernier))
     return result

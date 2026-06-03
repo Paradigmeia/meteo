@@ -1,9 +1,17 @@
 import { formatAgo, isOffline } from '../meteoUtils'
 
+function humAgo(dr) {
+  if (!dr?.recu_le_hum || !dr?.recu_le) return null
+  const diffMs = new Date(dr.recu_le).getTime() - new Date(dr.recu_le_hum).getTime()
+  if (diffMs < 30 * 60 * 1000) return null
+  return formatAgo(dr.recu_le_hum)
+}
+
 export default function SondeCard({ sonde, fullWidth, onClick }) {
   const dr = sonde.dernier_releve
   const offline = isOffline(dr?.recu_le)
   const ago = formatAgo(dr?.recu_le)
+  const stalehum = humAgo(dr)
 
   return (
     <div
@@ -23,7 +31,12 @@ export default function SondeCard({ sonde, fullWidth, onClick }) {
             {dr ? (
               <>
                 <span className="sonde-temp">{dr.temperature.toFixed(1)}°</span>
-                {dr.humidite != null && <span className="sonde-hum"><i className="ti ti-droplet" style={{ color: '#1D9E75' }} />{dr.humidite}%</span>}
+                {dr.humidite != null && (
+                  <span className="sonde-hum">
+                    <i className="ti ti-droplet" style={{ color: '#1D9E75' }} />{dr.humidite}%
+                    {stalehum && <span style={{ fontSize: 10, color: '#B5B0A8', marginLeft: 4 }}>{stalehum}</span>}
+                  </span>
+                )}
               </>
             ) : <span style={{ color: '#B5B0A8', fontSize: 14 }}>Aucune donnée</span>}
           </div>
@@ -42,6 +55,7 @@ export default function SondeCard({ sonde, fullWidth, onClick }) {
                 <div className="sonde-hum">
                   <i className="ti ti-droplet" style={{ color: '#1D9E75' }} />
                   {dr.humidite}%
+                  {stalehum && <span style={{ fontSize: 10, color: '#B5B0A8', marginLeft: 4 }}>{stalehum}</span>}
                 </div>
               )}
             </>
