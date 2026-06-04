@@ -1,6 +1,7 @@
 from fastapi import FastAPI, HTTPException, Security, Depends
 from fastapi.security.api_key import APIKeyHeader
 from fastapi.middleware.cors import CORSMiddleware
+from collections import defaultdict
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 import secrets
@@ -152,7 +153,6 @@ PERIOD_BUCKET_SECONDS = {"24h": None, "7d": 10800, "30d": 43200}
 
 
 def _aggregate(rows, bucket_seconds):
-    from collections import defaultdict
     buckets = defaultdict(lambda: {"temps": [], "hums": []})
     for temp, hum, recu_le_str in rows:
         dt = _parse_recu_le(recu_le_str)
