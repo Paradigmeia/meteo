@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useReleves } from '../hooks/useReleves'
-import Chart from './Chart'
+import HistoriqueChart from './HistoriqueChart'
 import { formatAgo } from '../meteoUtils'
 
 const PERIODS = ['24h', '7d', '30d']
@@ -60,7 +60,7 @@ export default function Detail({ slug, nom, onBack }) {
           <span className="legend-item"><span style={{ width: 20, height: 2, background: '#BA7517', display: 'inline-block', borderRadius: 1 }} />Température</span>
           <span className="legend-item"><span style={{ width: 20, height: 2, background: '#1D9E75', display: 'inline-block', borderRadius: 1, borderTop: '2px dashed #1D9E75' }} />Humidité</span>
         </div>
-        <Chart releves={releves} />
+        <HistoriqueChart releves={releves} period={period} />
       </div>
     </>
   )
