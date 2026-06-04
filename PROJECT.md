@@ -27,6 +27,16 @@ Légende : 🔲 À faire · 🔄 En cours · ✅ Livré · ⚠️ Dette techniqu
 
 ## Changelog
 
+### 2026-06-04 — Issue #9 : graphique historique enrichi (axes, tooltip, min/max, densité adaptative)
+
+- **`HistoriqueChart.jsx`** (nouveau composant) : axes Y gradués temperature (ambre, 4 ticks) et humidité (teal, 3 ticks), grille horizontale sur les ticks température, grille verticale pointillée sur les ticks X
+- **Axe X** : labels temporels contextuels — 24h toutes les 3h (`14h`), 7d par jour (`Lun`…), 30d tous les 5 jours (`12/5`…)
+- **Tooltip interactif** : curseur + bulle `#1A1714` au hover/touch, heure + temp + humidité, ancrage inversé si proche du bord droit
+- **Indicateurs min/max** : labels `▲`/`▼` flottants au-dessus/en-dessous des extrema température et humidité, clampés dans le viewBox
+- **Densité adaptative backend** : `GET /api/releves/{slug}?period=7d` → agrégation 3h (≤56 pts), `period=30d` → agrégation 12h (≤60 pts), `period=24h` → données brutes
+- **`chartUtils.js`** (nouveau) : `niceTicks`, `linearScale`, `smooth`, `getXTicks` encapsulés séparément du rendu
+- `Detail.jsx` mis à jour : import `HistoriqueChart`, passage du prop `period`, height viewBox 200px
+
 ### 2026-06-01 — Hotfixes intégration Shelly H&T Gen3 (commits directs sur main, rattrapage §4.1 workflow)
 
 - **Endpoint GET webhook** : ajout de `GET /api/releve/{slug}?temp=X&hum=Y&key=TOKEN` — le firmware Shelly HTG3/1.7.5 ne supporte que les URL actions GET (SPEC §4.1 mise à jour)

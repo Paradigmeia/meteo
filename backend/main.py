@@ -1,6 +1,7 @@
 from fastapi import FastAPI, HTTPException, Security, Depends
 from fastapi.security.api_key import APIKeyHeader
 from fastapi.middleware.cors import CORSMiddleware
+from collections import defaultdict
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 import secrets
@@ -148,6 +149,29 @@ async def get_sondes():
 
 
 PERIOD_HOURS = {"24h": 24, "7d": 168, "30d": 720}
+PERIOD_BUCKET_SECONDS = {"24h": None, "7d": 10800, "30d": 43200}
+
+
+def _aggregate(rows, bucket_seconds):
+    buckets = defaultdict(lambda: {"temps": [], "hums": []})
+    for temp, hum, recu_le_str in rows:
+        dt = _parse_recu_le(recu_le_str)
+        key = int(dt.timestamp() // bucket_seconds) * bucket_seconds
+        if temp is not None:
+            buckets[key]["temps"].append(temp)
+        if hum is not None:
+            buckets[key]["hums"].append(hum)
+    result = []
+    for key in sorted(buckets.keys()):
+        b = buckets[key]
+        avg_temp = round(sum(b["temps"]) / len(b["temps"]), 1) if b["temps"] else None
+        avg_hum = round(sum(b["hums"]) / len(b["hums"]), 1) if b["hums"] else None
+        result.append(ReleverOut(
+            temperature=avg_temp,
+            humidite=avg_hum,
+            recu_le=datetime.fromtimestamp(key, tz=timezone.utc),
+        ))
+    return result
 
 
 @app.get("/api/releves/{slug}", response_model=list[ReleverOut])
@@ -168,12 +192,11 @@ async def get_releves(slug: str, period: str = "24h"):
             (sonde_id, since),
         ) as cur:
             rows = await cur.fetchall()
+    bucket = PERIOD_BUCKET_SECONDS[period]
+    if bucket:
+        return _aggregate(rows, bucket)
     return [
-        ReleverOut(
-            temperature=r[0],
-            humidite=r[1],
-            recu_le=_parse_recu_le(r[2]),
-        )
+        ReleverOut(temperature=r[0], humidite=r[1], recu_le=_parse_recu_le(r[2]))
         for r in rows
     ]
 
