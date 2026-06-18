@@ -76,7 +76,7 @@ et ne supporte que les URL actions GET. Deux endpoints coexistent :
 **Endpoint GET** (utilisé par les sondes Shelly — URL actions) :
 ```
 GET /api/releve/{slug}?temp=${ev.tC}&key=TOKEN   ← event température
-GET /api/releve/{slug}?hum=${ev.h}&key=TOKEN     ← event humidité (action séparée)
+GET /api/releve/{slug}?hum=${ev.rh}&key=TOKEN    ← event humidité (action séparée)
 ```
 - `temp` et `hum` sont tous les deux optionnels, mais au moins l'un doit être présent
 - La clé API est passée en query param `key`

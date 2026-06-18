@@ -70,9 +70,9 @@ async def health():
 def _parse_shelly_value(value: str | None) -> float | None:
     """Convertit un paramètre de webhook Shelly en float.
 
-    Le firmware HTG3 sérialise ${ev.tC}/${ev.h} en la chaîne littérale
+    Le firmware HTG3 sérialise ${ev.tC}/${ev.rh} en la chaîne littérale
     "null" quand ce champ est absent du rapport ayant déclenché l'action
-    (ex: rapport déclenché par un changement de température, où ev.h
+    (ex: rapport déclenché par un changement de température, où ev.rh
     n'existe pas). On traite donc "null" comme une valeur absente plutôt
     que de rejeter la requête.
     """
@@ -89,7 +89,7 @@ async def get_releve(slug: str, key: str, temp: str | None = None, hum: str | No
     """Endpoint GET pour les webhooks Shelly (URL action).
     Le Shelly H&T Gen3 envoie temp et humidité sur deux events distincts.
     Usage temp  : /api/releve/salon?temp=${ev.tC}&key=TOKEN
-    Usage hum   : /api/releve/salon?hum=${ev.h}&key=TOKEN
+    Usage hum   : /api/releve/salon?hum=${ev.rh}&key=TOKEN
     """
     if not API_KEY or not secrets.compare_digest(key, API_KEY):
         raise HTTPException(status_code=401, detail="Clé API invalide")

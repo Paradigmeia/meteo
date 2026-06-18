@@ -27,10 +27,15 @@ Légende : 🔲 À faire · 🔄 En cours · ✅ Livré · ⚠️ Dette techniqu
 
 ## Changelog
 
+### 2026-06-18 — Fix variable Shelly humidité : `${ev.h}` → `${ev.rh}`
+
+- Variable correcte pour l'humidité sur firmware HTG3/1.7.5 : `${ev.rh}` (relative humidity), pas `${ev.h}` — confirmé en production
+- SPEC.md, PLAN.md et docstring `main.py` mis à jour
+
 ### 2026-06-15 — Fix webhook Shelly : tolérance aux valeurs `null` littérales
 
-- **`GET /api/releve/{slug}`** : `temp` et `hum` acceptés en `str` puis convertis via `_parse_shelly_value` — la chaîne littérale `"null"` (envoyée par le firmware HTG3 quand `${ev.tC}`/`${ev.h}` est absent du rapport déclencheur) est traitée comme valeur absente au lieu de provoquer un 422
-- Cause : un rapport déclenché par un changement de température ne contient pas `ev.h`, donc l'action "Changement d'humidité" envoyait `hum=null`, rejeté par l'API → perte des relevés d'humidité depuis le 14/06
+- **`GET /api/releve/{slug}`** : `temp` et `hum` acceptés en `str` puis convertis via `_parse_shelly_value` — la chaîne littérale `"null"` (envoyée par le firmware HTG3 quand `${ev.tC}`/`${ev.rh}` est absent du rapport déclencheur) est traitée comme valeur absente au lieu de provoquer un 422
+- Cause : un rapport déclenché par un changement de température ne contient pas `ev.rh`, donc l'action "Changement d'humidité" envoyait `hum=null`, rejeté par l'API → perte des relevés d'humidité depuis le 14/06
 - **`backend/test_main.py`** (nouveau) : tests sur `_parse_shelly_value` et sur l'endpoint (`null` ignoré, clé invalide, valeur invalide → 422)
 - **`backend/requirements-dev.txt`** (nouveau) : ajout `pytest==9.1.0` pour exécuter la suite de tests
 
