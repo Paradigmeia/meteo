@@ -76,7 +76,7 @@ def _parse_shelly_value(value: str | None) -> float | None:
     n'existe pas). On traite donc "null" comme une valeur absente plutôt
     que de rejeter la requête.
     """
-    if value is None or value.lower() == "null":
+    if value is None or value.strip().lower() in ("", "null"):
         return None
     try:
         return float(value)

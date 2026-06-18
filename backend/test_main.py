@@ -1,4 +1,5 @@
 import os
+import sqlite3
 import tempfile
 
 import pytest
@@ -22,6 +23,17 @@ def client():
         yield c
 
 
+def _last_salon_row():
+    conn = sqlite3.connect(config.DATABASE_PATH)
+    row = conn.execute(
+        """SELECT temperature, humidite FROM releves
+           WHERE sonde_id = (SELECT id FROM sondes WHERE slug = 'salon')
+           ORDER BY id DESC LIMIT 1"""
+    ).fetchone()
+    conn.close()
+    return row
+
+
 def test_parse_shelly_value_none():
     assert _parse_shelly_value(None) is None
 
@@ -29,6 +41,9 @@ def test_parse_shelly_value_none():
 def test_parse_shelly_value_literal_null():
     assert _parse_shelly_value("null") is None
     assert _parse_shelly_value("Null") is None
+    assert _parse_shelly_value("NULL") is None
+    assert _parse_shelly_value("") is None
+    assert _parse_shelly_value("  ") is None
 
 
 def test_parse_shelly_value_float():
@@ -49,6 +64,20 @@ def test_releve_hum_null_is_ignored(client):
         params={"temp": "25.4", "hum": "null", "key": "test-key"},
     )
     assert resp.status_code == 200
+    temp, hum = _last_salon_row()
+    assert temp == 25.4
+    assert hum is None
+
+
+def test_releve_empty_hum_is_ignored(client):
+    resp = client.get(
+        "/api/releve/salon",
+        params={"temp": "22.0", "hum": "", "key": "test-key"},
+    )
+    assert resp.status_code == 200
+    temp, hum = _last_salon_row()
+    assert temp == 22.0
+    assert hum is None
 
 
 def test_releve_only_null_is_rejected(client):
