@@ -67,8 +67,25 @@ async def health():
     return {"status": "ok"}
 
 
+def _parse_shelly_value(value: str | None) -> float | None:
+    """Convertit un paramètre de webhook Shelly en float.
+
+    Le firmware HTG3 sérialise ${ev.tC}/${ev.h} en la chaîne littérale
+    "null" quand ce champ est absent du rapport ayant déclenché l'action
+    (ex: rapport déclenché par un changement de température, où ev.h
+    n'existe pas). On traite donc "null" comme une valeur absente plutôt
+    que de rejeter la requête.
+    """
+    if value is None or value.strip().lower() in ("", "null"):
+        return None
+    try:
+        return float(value)
+    except ValueError:
+        raise HTTPException(status_code=422, detail=f"Valeur invalide : {value!r}")
+
+
 @app.get("/api/releve/{slug}", status_code=200)
-async def get_releve(slug: str, key: str, temp: float | None = None, hum: float | None = None):
+async def get_releve(slug: str, key: str, temp: str | None = None, hum: str | None = None):
     """Endpoint GET pour les webhooks Shelly (URL action).
     Le Shelly H&T Gen3 envoie temp et humidité sur deux events distincts.
     Usage temp  : /api/releve/salon?temp=${ev.tC}&key=TOKEN
@@ -76,7 +93,9 @@ async def get_releve(slug: str, key: str, temp: float | None = None, hum: float 
     """
     if not API_KEY or not secrets.compare_digest(key, API_KEY):
         raise HTTPException(status_code=401, detail="Clé API invalide")
-    if temp is None and hum is None:
+    temp_val = _parse_shelly_value(temp)
+    hum_val = _parse_shelly_value(hum)
+    if temp_val is None and hum_val is None:
         raise HTTPException(status_code=422, detail="Au moins temp ou hum est requis")
     async with get_db() as db:
         async with db.execute("SELECT id FROM sondes WHERE slug = ?", (slug,)) as cur:
@@ -86,7 +105,7 @@ async def get_releve(slug: str, key: str, temp: float | None = None, hum: float 
         sonde_id = row[0]
         await db.execute(
             "INSERT INTO releves (sonde_id, temperature, humidite, recu_le) VALUES (?, ?, ?, ?)",
-            (sonde_id, temp, hum, _now_iso()),
+            (sonde_id, temp_val, hum_val, _now_iso()),
         )
         await db.commit()
     return {"ok": True}
