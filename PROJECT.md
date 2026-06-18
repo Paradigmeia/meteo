@@ -27,6 +27,12 @@ Légende : 🔲 À faire · 🔄 En cours · ✅ Livré · ⚠️ Dette techniqu
 
 ## Changelog
 
+### 2026-06-18 — Issue #12 : ajout de la période 12h dans la vue détail sonde
+
+- **`GET /api/releves/{slug}?period=12h`** : nouvelle valeur acceptée — fenêtre `NOW() - 12 heures`, données brutes (même logique que `24h`, pas d'agrégation par bucket)
+- **`frontend/src/components/Detail.jsx`** : bouton `12h` ajouté en première position dans `PERIODS`; `24h` reste le défaut à l'ouverture
+- **`frontend/src/utils/chartUtils.js`** : cas `'12h'` ajouté dans `getXTicks` — ticks toutes les 2h
+
 ### 2026-06-15 — Fix webhook Shelly : tolérance aux valeurs `null` littérales
 
 - **`GET /api/releve/{slug}`** : `temp` et `hum` acceptés en `str` puis convertis via `_parse_shelly_value` — la chaîne littérale `"null"` (envoyée par le firmware HTG3 quand `${ev.tC}`/`${ev.h}` est absent du rapport déclencheur) est traitée comme valeur absente au lieu de provoquer un 422

@@ -3,7 +3,7 @@ import { useReleves } from '../hooks/useReleves'
 import HistoriqueChart from './HistoriqueChart'
 import { formatAgo } from '../meteoUtils'
 
-const PERIODS = ['24h', '7d', '30d']
+const PERIODS = ['12h', '24h', '7d', '30d']
 
 export default function Detail({ slug, nom, onBack }) {
   const [period, setPeriod] = useState('24h')

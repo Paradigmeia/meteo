@@ -42,7 +42,16 @@ export function getXTicks(releves, period, xStart, xEnd) {
 
   const ticks = []
 
-  if (period === '24h') {
+  if (period === '12h') {
+    const start = new Date(minTime)
+    start.setMinutes(0, 0, 0)
+    const nextH = Math.ceil(start.getHours() / 2) * 2
+    start.setHours(nextH)
+    for (let t = start.getTime(); t <= maxTime; t += 2 * 3600 * 1000) {
+      const d = new Date(t)
+      ticks.push({ time: t, x: xOf(t), label: `${d.getHours()}h` })
+    }
+  } else if (period === '24h') {
     const start = new Date(minTime)
     start.setMinutes(0, 0, 0)
     const nextH = Math.ceil(start.getHours() / 3) * 3

@@ -167,8 +167,8 @@ async def get_sondes():
     return result
 
 
-PERIOD_HOURS = {"24h": 24, "7d": 168, "30d": 720}
-PERIOD_BUCKET_SECONDS = {"24h": None, "7d": 10800, "30d": 43200}
+PERIOD_HOURS = {"12h": 12, "24h": 24, "7d": 168, "30d": 720}
+PERIOD_BUCKET_SECONDS = {"12h": None, "24h": None, "7d": 10800, "30d": 43200}
 
 
 def _aggregate(rows, bucket_seconds):
@@ -196,7 +196,7 @@ def _aggregate(rows, bucket_seconds):
 @app.get("/api/releves/{slug}", response_model=list[ReleverOut])
 async def get_releves(slug: str, period: str = "24h"):
     if period not in PERIOD_HOURS:
-        raise HTTPException(status_code=400, detail="Période invalide. Valeurs : 24h, 7d, 30d")
+        raise HTTPException(status_code=400, detail="Période invalide. Valeurs : 12h, 24h, 7d, 30d")
     since = (datetime.now(timezone.utc) - timedelta(hours=PERIOD_HOURS[period])).isoformat()
     async with get_db() as db:
         async with db.execute("SELECT id FROM sondes WHERE slug = ?", (slug,)) as cur:
