@@ -21,6 +21,16 @@ export function linearScale(value, domainMin, domainMax, rangeMin, rangeMax) {
   return rangeMin + ((value - domainMin) / (domainMax - domainMin)) * (rangeMax - rangeMin)
 }
 
+export function formatHoverLabel(date, period) {
+  if (period === '12h' || period === '24h') {
+    return date.toLocaleTimeString('fr', { hour: '2-digit', minute: '2-digit' })
+  }
+  if (period === '7d') {
+    return date.toLocaleDateString('fr', { weekday: 'short', day: 'numeric', month: 'long' })
+  }
+  return date.toLocaleDateString('fr', { day: 'numeric', month: 'long' })
+}
+
 export function smooth(pts) {
   if (pts.length === 0) return ''
   return pts.map((p, i) => {

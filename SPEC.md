@@ -116,7 +116,12 @@ Vue détail par sonde, accessible par tap sur la card depuis le dashboard.
 
 - Affiche les valeurs actuelles (température + humidité)
 - Graphique double-axe : température (axe gauche, ambre) + humidité (axe droit, teal, pointillés)
-- Période sélectionnable : 24 dernières heures (défaut) / 7 jours / 30 jours
+- Période sélectionnable : 12h / 24h (défaut) / 7 jours / 30 jours
+- **Panneau de survol fixe** (entre le sélecteur de période et le graphique) : affiche heure,
+  température et humidité du point survolé (souris) ou touché (mobile), toujours les deux
+  valeurs ensemble. Au repos (rien sélectionné), affiche en grisé le dernier relevé de la
+  période. Une ligne verticale fine dans le graphique repère le point survolé/touché. Sur
+  mobile, la valeur reste affichée après `touchend` (pas de retour à l'état repos)
 - Bouton retour vers le dashboard
 
 ### 4.4 Sondes prévues

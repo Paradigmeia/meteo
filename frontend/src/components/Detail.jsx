@@ -1,17 +1,23 @@
 import { useState } from 'react'
 import { useReleves } from '../hooks/useReleves'
 import HistoriqueChart from './HistoriqueChart'
+import SurvolPanel from './SurvolPanel'
 import { formatAgo } from '../meteoUtils'
 
 const PERIODS = ['12h', '24h', '7d', '30d']
 
 export default function Detail({ slug, nom, onBack }) {
   const [period, setPeriod] = useState('24h')
+  const [hovered, setHovered] = useState(null)
   const { releves } = useReleves(slug, period)
 
   const lastTemp = [...releves].reverse().find(r => r.temperature != null)
   const lastHum  = [...releves].reverse().find(r => r.humidite != null)
   const lastAny  = releves[releves.length - 1]
+
+  const survol = hovered ?? (lastAny
+    ? { recu_le: lastAny.recu_le, temperature: lastTemp?.temperature ?? null, humidite: lastHum?.humidite ?? null }
+    : null)
 
   return (
     <>
@@ -48,19 +54,21 @@ export default function Detail({ slug, nom, onBack }) {
           <button
             key={p}
             className={`period-btn${period === p ? ' active' : ''}`}
-            onClick={() => setPeriod(p)}
+            onClick={() => { setPeriod(p); setHovered(null) }}
           >
             {p}
           </button>
         ))}
       </div>
 
+      {survol && <SurvolPanel releve={survol} period={period} repos={!hovered} />}
+
       <div className="chart-card">
         <div className="chart-legend">
           <span className="legend-item"><span style={{ width: 20, height: 2, background: '#BA7517', display: 'inline-block', borderRadius: 1 }} />Température</span>
           <span className="legend-item"><span style={{ width: 20, height: 2, background: '#1D9E75', display: 'inline-block', borderRadius: 1, borderTop: '2px dashed #1D9E75' }} />Humidité</span>
         </div>
-        <HistoriqueChart releves={releves} period={period} />
+        <HistoriqueChart key={period} releves={releves} period={period} onHover={setHovered} />
       </div>
     </>
   )

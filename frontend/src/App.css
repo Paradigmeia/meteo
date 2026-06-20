@@ -58,6 +58,16 @@
 .periods { display: flex; gap: 6px; margin-bottom: 1rem; }
 .period-btn { flex: 1; background: #EDE6DB; border: none; border-radius: 8px; padding: 8px; font-size: 13px; color: #6B6560; cursor: pointer; transition: all .12s; }
 .period-btn.active { background: #1A1714; color: #F7F3EE; }
+.hover-panel {
+  background: #EDE6DB; border-radius: 10px; padding: .75rem 1rem; margin-bottom: 1rem;
+  height: 56px; box-sizing: border-box; display: flex; flex-direction: column; justify-content: center; gap: 4px;
+  transition: opacity .15s;
+}
+.hover-panel.repos { opacity: .55; }
+.hover-panel-time { font-size: 12px; color: #6B6560; }
+.hover-panel-values { display: flex; gap: 16px; font-size: 15px; font-weight: 500; }
+.hover-panel-temp { color: #BA7517; }
+.hover-panel-hum { color: #1D9E75; }
 .chart-card { background: #FFF9F2; border: 1px solid rgba(0,0,0,.06); border-radius: 16px; padding: 1rem; margin-bottom: 2rem; }
 .chart-legend { display: flex; gap: 16px; margin-bottom: 10px; }
 .legend-item { font-size: 11px; color: #6B6560; display: flex; align-items: center; gap: 6px; }

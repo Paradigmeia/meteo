@@ -27,6 +27,28 @@ Légende : 🔲 À faire · 🔄 En cours · ✅ Livré · ⚠️ Dette techniqu
 
 ## Changelog
 
+### 2026-06-20 — Issue #14 : panneau de survol fixe remplaçant le tooltip flottant
+
+- **`HistoriqueChart.jsx`** : suppression du tooltip flottant SVG (bulle + texte) — conservation
+  d'une simple ligne verticale de repérage (`#1A1714`, opacité 0.15). La recherche du point
+  survolé se fait désormais indépendamment sur les relevés température et humidité (au lieu
+  d'un seul relevé combiné), ce qui corrige le bug où une seule des deux valeurs s'affichait
+  selon la courbe la plus proche du point de contact
+- **`HistoriqueChart.jsx`** : nouvelle prop `onHover(releve|null)` — notifie le parent du point
+  survolé/touché ; `null` à la sortie du curseur en desktop, valeur conservée après `touchend`
+  sur mobile (pas de handler dédié)
+- **`SurvolPanel.jsx`** (nouveau composant) : panneau fixe inséré entre le sélecteur de période
+  et la carte graphique — heure (format adapté à la période), température (ambre) et humidité
+  (teal) ; état "repos" grisé (dernier relevé de la période) quand rien n'est survolé
+- **`chartUtils.js`** : nouvelle fonction `formatHoverLabel(date, period)` — `HH:mm` pour
+  12h/24h, `lun. 12 juin` pour 7j, `12 juin` pour 30j
+- **`Detail.jsx`** : état `hovered` câblé sur `HistoriqueChart`, remis à `null` au changement de
+  période (le graphique est remonté via `key={period}`)
+- **`App.css`** : styles `.hover-panel` — fond `#EDE6DB` (comme les metric cards), hauteur fixe
+  pour éviter tout layout shift
+- **`SPEC.md`** §4.3 amendée : description du panneau de survol fixe + mention de la période
+  `12h` (omise depuis #12)
+
 ### 2026-06-18 — Issue #12 : ajout de la période 12h dans la vue détail sonde
 
 - **`GET /api/releves/{slug}?period=12h`** : nouvelle valeur acceptée — fenêtre `NOW() - 12 heures`, données brutes (même logique que `24h`, pas d'agrégation par bucket)
