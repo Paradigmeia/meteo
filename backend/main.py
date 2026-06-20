@@ -145,6 +145,7 @@ async def get_sondes():
                    WHERE sonde_id = s.id AND humidite IS NOT NULL
                    ORDER BY recu_le DESC LIMIT 1
                )
+               WHERE s.actif = 1
                ORDER BY s.id"""
         ) as cur:
             rows = await cur.fetchall()

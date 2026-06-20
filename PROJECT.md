@@ -27,6 +27,15 @@ Légende : 🔲 À faire · 🔄 En cours · ✅ Livré · ⚠️ Dette techniqu
 
 ## Changelog
 
+### 2026-06-20 — Masquage des sondes pas encore achetées (`chambre-parents`, `chambre-jade`)
+
+- `chambre-parents` et `chambre-jade` n'existent pas physiquement (jamais achetées) — elles n'auraient jamais dû apparaître sur le dashboard avec "Aucune donnée" / "Hors ligne" permanent
+- **`backend/main.py`** : `GET /api/sondes` filtre désormais `WHERE s.actif = 1` (champ stocké depuis le LOT 1 mais jamais exploité jusqu'ici, cf. PLAN.md décision 9)
+- Base de production : `UPDATE sondes SET actif = 0 WHERE slug IN ('chambre-parents', 'chambre-jade')`
+- **`SPEC.md`** §3, §4.2 et §4.4 mis à jour (rôle de `actif`, statut d'achat réel des 4 sondes)
+- Seules `salon` et `exterieur` sont des sondes physiquement installées à ce jour. Réactivation future = `UPDATE sondes SET actif = 1` une fois la sonde achetée, aucun changement de code (cf. PLAN.md décision 4)
+- Nécessite un déploiement (`scripts/update.sh`) car c'est un changement de code, contrairement aux activations précédentes qui étaient de simples UPDATE en base
+
 ### 2026-06-20 — Fix variable Shelly humidité : `${ev.h}` → `${ev.rh}` (récupération d'un fix orphelin)
 
 - Variable correcte pour l'humidité sur firmware HTG3/1.7.5 : `${ev.rh}` (relative humidity) — `${ev.h}` est toujours null, confirmé en production sur la sonde `salon`
