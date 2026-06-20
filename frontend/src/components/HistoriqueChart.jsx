@@ -7,7 +7,7 @@ const X0 = PL, X1 = W - PR, Y0 = PT, Y1 = H - PB
 
 function clampX(x) { return Math.max(X0 + 2, Math.min(X1 - 2, x)) }
 
-export default function HistoriqueChart({ releves, period }) {
+export default function HistoriqueChart({ releves, period, onHover }) {
   const [tooltip, setTooltip] = useState(null)
   const touchActiveRef = useRef(false)
 
@@ -62,10 +62,10 @@ export default function HistoriqueChart({ releves, period }) {
 
   const xTicks = getXTicks(releves, period, X0, X1)
 
-  // Find closest releve to an SVG x coordinate
-  function findClosest(svgX) {
+  // Find the releve in a list whose x position is closest to an SVG x coordinate
+  function findClosestIn(list, svgX) {
     let best = null, bestDist = Infinity
-    for (const r of releves) {
+    for (const r of list) {
       const rx = xOf(new Date(r.recu_le).getTime())
       const d = Math.abs(rx - svgX)
       if (d < bestDist) { bestDist = d; best = r }
@@ -81,9 +81,18 @@ export default function HistoriqueChart({ releves, period }) {
 
   function updateTooltip(e) {
     const svgX = getSvgX(e)
-    const r = findClosest(svgX)
-    if (!r) return
-    setTooltip({ x: xOf(new Date(r.recu_le).getTime()), releve: r })
+    const anchor = findClosestIn(releves, svgX)
+    if (!anchor) return
+    // Température et humidité sont cherchées indépendamment : un même relevé peut
+    // ne contenir que l'une des deux valeurs (events Shelly séparés)
+    const closestTemp = findClosestIn(tempReleves, svgX)
+    const closestHum = findClosestIn(humReleves, svgX)
+    setTooltip({ x: xOf(new Date(anchor.recu_le).getTime()) })
+    onHover?.({
+      recu_le: anchor.recu_le,
+      temperature: closestTemp ? closestTemp.temperature : null,
+      humidite: closestHum ? closestHum.humidite : null,
+    })
   }
 
   function handleMouseMove(e) {
@@ -92,7 +101,10 @@ export default function HistoriqueChart({ releves, period }) {
   }
 
   function handleMouseLeave() {
-    if (!touchActiveRef.current) setTooltip(null)
+    if (!touchActiveRef.current) {
+      setTooltip(null)
+      onHover?.(null)
+    }
   }
 
   function handleTouchStart(e) {
@@ -105,31 +117,11 @@ export default function HistoriqueChart({ releves, period }) {
     updateTooltip(e)
   }
 
-  // Tooltip rendering
-  let tooltipEl = null
-  if (tooltip) {
-    const { x, releve } = tooltip
-    const dt = new Date(releve.recu_le)
-    const timeStr = `${dt.getHours()}h${String(dt.getMinutes()).padStart(2, '0')}`
-    const TW = 86, TH = releve.temperature != null && releve.humidite != null ? 56 : 42
-    const flipLeft = x > X1 - TW - 12
-    const tx = flipLeft ? x - TW - 8 : x + 8
-    const ty = Y0 + 4
-
-    tooltipEl = (
-      <g style={{ pointerEvents: 'none' }}>
-        <line x1={x} y1={Y0} x2={x} y2={Y1} stroke="rgba(0,0,0,0.15)" strokeWidth="1" />
-        <rect x={tx} y={ty} width={TW} height={TH} rx="8" fill="#1A1714" />
-        <text x={tx + TW / 2} y={ty + 13} fill="#F7F3EE" fontSize="10" textAnchor="middle" fontWeight="500">{timeStr}</text>
-        {releve.temperature != null && (
-          <text x={tx + 8} y={ty + 26} fill="#E8C97B" fontSize="10">🌡 {releve.temperature.toFixed(1)}°C</text>
-        )}
-        {releve.humidite != null && (
-          <text x={tx + 8} y={ty + (releve.temperature != null ? 40 : 26)} fill="#5DD6AA" fontSize="10">💧 {Math.round(releve.humidite)}%</text>
-        )}
-      </g>
-    )
-  }
+  // Ligne de repérage verticale (le détail des valeurs est affiché par le panneau
+  // de survol fixe dans Detail.jsx, via la prop onHover)
+  const hoverLineEl = tooltip && (
+    <line x1={tooltip.x} y1={Y0} x2={tooltip.x} y2={Y1} stroke="#1A1714" strokeOpacity="0.15" strokeWidth="1" style={{ pointerEvents: 'none' }} />
+  )
 
   return (
     <svg
@@ -195,8 +187,8 @@ export default function HistoriqueChart({ releves, period }) {
           fill="#1D9E75" fontSize="10" textAnchor="middle">▼ {Math.round(minHumPt.val)}%</text>
       )}
 
-      {/* Tooltip */}
-      {tooltipEl}
+      {/* Ligne de repérage au survol/tap */}
+      {hoverLineEl}
     </svg>
   )
 }
