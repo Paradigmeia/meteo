@@ -71,3 +71,24 @@
 .chart-card { background: #FFF9F2; border: 1px solid rgba(0,0,0,.06); border-radius: 16px; padding: 1rem; margin-bottom: 2rem; }
 .chart-legend { display: flex; gap: 16px; margin-bottom: 10px; }
 .legend-item { font-size: 11px; color: #6B6560; display: flex; align-items: center; gap: 6px; }
+
+.analyse-btn { background: none; border: none; cursor: pointer; padding: 0; display: flex; align-items: center; }
+.analyse-layout { display: grid; grid-template-columns: 240px 1fr; gap: 24px; align-items: start; }
+.analyse-sidebar { background: #FFF9F2; border: 1px solid rgba(0,0,0,.06); border-radius: 16px; padding: 1.25rem; position: sticky; top: 1rem; }
+.analyse-group { margin-bottom: 1.25rem; }
+.analyse-group:last-child { margin-bottom: 0; }
+.analyse-check { display: flex; align-items: center; gap: 8px; font-size: 13px; color: #1A1714; padding: 4px 0; cursor: pointer; }
+.analyse-swatch { width: 10px; height: 10px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
+.analyse-main { min-width: 0; }
+.analyse-range { display: flex; justify-content: space-between; align-items: center; gap: 16px; margin-bottom: 1rem; flex-wrap: wrap; }
+.analyse-range .periods { margin-bottom: 0; flex: 1; min-width: 280px; }
+.analyse-date-pickers { display: flex; gap: 10px; }
+.analyse-date-field { display: flex; flex-direction: column; gap: 4px; font-size: 11px; color: #6B6560; }
+.analyse-date-field input {
+  background: #EDE6DB; border: none; border-radius: 8px; padding: 6px 8px; font-size: 12px; color: #1A1714;
+}
+.analyse-legend { flex-wrap: wrap; }
+@media (max-width: 1023px) {
+  .analyse-layout { grid-template-columns: 1fr; }
+  .analyse-sidebar { position: static; }
+}

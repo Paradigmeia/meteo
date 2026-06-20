@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Security, Depends
+from fastapi import FastAPI, HTTPException, Security, Depends, Query
 from fastapi.security.api_key import APIKeyHeader
 from fastapi.middleware.cors import CORSMiddleware
 from collections import defaultdict
@@ -168,8 +168,25 @@ async def get_sondes():
     return result
 
 
-PERIOD_HOURS = {"12h": 12, "24h": 24, "7d": 168, "30d": 720}
-PERIOD_BUCKET_SECONDS = {"12h": None, "24h": None, "7d": 10800, "30d": 43200}
+PERIOD_HOURS = {"12h": 12, "24h": 24, "7d": 168, "30d": 720, "90d": 2160, "1an": 8760}
+
+
+def _bucket_seconds_for_range(hours: float) -> int | None:
+    """Choisit la taille de bucket d'agrégation en fonction de l'étendue de la plage.
+
+    Généralise la logique fixe par période (cf. PERIOD_BUCKET_SECONDS historique) pour
+    couvrir aussi les plages libres (?from=&to=) de la vue Analyse, dont la durée n'est
+    pas connue à l'avance.
+    """
+    if hours <= 24:
+        return None
+    if hours <= 168:
+        return 10800
+    if hours <= 720:
+        return 43200
+    if hours <= 2160:
+        return 86400
+    return 259200
 
 
 def _aggregate(rows, bucket_seconds):
@@ -195,10 +212,37 @@ def _aggregate(rows, bucket_seconds):
 
 
 @app.get("/api/releves/{slug}", response_model=list[ReleverOut])
-async def get_releves(slug: str, period: str = "24h"):
-    if period not in PERIOD_HOURS:
-        raise HTTPException(status_code=400, detail="Période invalide. Valeurs : 12h, 24h, 7d, 30d")
-    since = (datetime.now(timezone.utc) - timedelta(hours=PERIOD_HOURS[period])).isoformat()
+async def get_releves(
+    slug: str,
+    period: str = "24h",
+    from_: str | None = Query(None, alias="from"),
+    to: str | None = None,
+):
+    """Plage soit par période prédéfinie (?period=), soit libre (?from=&to=, ISO 8601).
+
+    La plage libre est utilisée par la vue Analyse (issue #19) pour couvrir les durées
+    arbitraires et les sélections via date pickers, en plus des boutons rapides.
+    """
+    if from_ or to:
+        if not from_ or not to:
+            raise HTTPException(status_code=400, detail="from et to doivent être fournis ensemble")
+        try:
+            start = _parse_recu_le(from_)
+            end = _parse_recu_le(to)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Format de date invalide (ISO 8601 attendu)")
+        if end <= start:
+            raise HTTPException(status_code=400, detail="'to' doit être postérieur à 'from'")
+        hours = (end - start).total_seconds() / 3600
+    else:
+        if period not in PERIOD_HOURS:
+            raise HTTPException(status_code=400, detail="Période invalide. Valeurs : 12h, 24h, 7d, 30d, 90d, 1an")
+        end = datetime.now(timezone.utc)
+        start = end - timedelta(hours=PERIOD_HOURS[period])
+        hours = PERIOD_HOURS[period]
+
+    since = start.isoformat()
+    until = end.isoformat()
     async with get_db() as db:
         async with db.execute("SELECT id FROM sondes WHERE slug = ?", (slug,)) as cur:
             row = await cur.fetchone()
@@ -207,12 +251,12 @@ async def get_releves(slug: str, period: str = "24h"):
         sonde_id = row[0]
         async with db.execute(
             """SELECT temperature, humidite, recu_le FROM releves
-               WHERE sonde_id = ? AND recu_le >= ?
+               WHERE sonde_id = ? AND recu_le >= ? AND recu_le <= ?
                ORDER BY recu_le ASC""",
-            (sonde_id, since),
+            (sonde_id, since, until),
         ) as cur:
             rows = await cur.fetchall()
-    bucket = PERIOD_BUCKET_SECONDS[period]
+    bucket = _bucket_seconds_for_range(hours)
     if bucket:
         return _aggregate(rows, bucket)
     return [

@@ -102,3 +102,58 @@ def test_releve_invalid_value_rejected(client):
         params={"temp": "abc", "key": "test-key"},
     )
     assert resp.status_code == 422
+
+
+def _insert_releve(slug, temp, hum, recu_le):
+    conn = sqlite3.connect(config.DATABASE_PATH)
+    conn.execute(
+        """INSERT INTO releves (sonde_id, temperature, humidite, recu_le)
+           VALUES ((SELECT id FROM sondes WHERE slug = ?), ?, ?, ?)""",
+        (slug, temp, hum, recu_le),
+    )
+    conn.commit()
+    conn.close()
+
+
+def test_releves_period_90d_and_1an_accepted(client):
+    assert client.get("/api/releves/salon", params={"period": "90d"}).status_code == 200
+    assert client.get("/api/releves/salon", params={"period": "1an"}).status_code == 200
+
+
+def test_releves_invalid_period_rejected(client):
+    resp = client.get("/api/releves/salon", params={"period": "12mois"})
+    assert resp.status_code == 400
+
+
+def test_releves_from_to_filters_range(client):
+    _insert_releve("salon", 19.5, 50.0, "2026-01-15T10:00:00+00:00")
+    _insert_releve("salon", 99.9, 99.0, "2026-03-01T10:00:00+00:00")  # hors plage
+    resp = client.get(
+        "/api/releves/salon",
+        params={"from": "2026-01-15T00:00:00.000Z", "to": "2026-01-16T00:00:00.000Z"},
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert any(r["temperature"] == 19.5 for r in data)
+    assert all(r["temperature"] != 99.9 for r in data)
+
+
+def test_releves_from_without_to_rejected(client):
+    resp = client.get("/api/releves/salon", params={"from": "2026-01-15T00:00:00.000Z"})
+    assert resp.status_code == 400
+
+
+def test_releves_to_before_from_rejected(client):
+    resp = client.get(
+        "/api/releves/salon",
+        params={"from": "2026-01-16T00:00:00.000Z", "to": "2026-01-15T00:00:00.000Z"},
+    )
+    assert resp.status_code == 400
+
+
+def test_releves_invalid_date_format_rejected(client):
+    resp = client.get(
+        "/api/releves/salon",
+        params={"from": "pas-une-date", "to": "2026-01-16T00:00:00.000Z"},
+    )
+    assert resp.status_code == 400

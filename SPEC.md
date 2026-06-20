@@ -1,7 +1,7 @@
 # SPEC.md — maison-temp
 
-**Version** : 1.1
-**Date** : 2026-05-23
+**Version** : 1.2
+**Date** : 2026-06-20
 **Objectif principal** : Suivre en temps réel et en historique les températures et taux d'humidité de la maison (intérieur + extérieur) via un dashboard web responsive accessible en ligne.
 
 ---
@@ -170,6 +170,32 @@ GET https://api.open-meteo.com/v1/forecast
 ```
 
 **Cache** : réponse mise en cache 30 min côté backend pour éviter les appels répétés.
+
+---
+
+### 4.6 Vue Analyse (desktop uniquement)
+
+Vue power user accessible via icône `ti-chart-dots-3` dans le header du dashboard
+(masquée sur viewport < 768px).
+
+Permet de superposer librement sur un graphique SVG grand format (hauteur 400px,
+pleine largeur) toute combinaison de :
+- Mesures brutes par sonde (température + humidité, 1 couleur par sonde)
+- Température Open-Meteo Ascain (comparaison modèle vs sonde réelle)
+- Moyennes glissantes 1h et 6h
+- Bande min/max journalière
+- Indices de confort : chaleur ressentie (Heat Index, si T > 27°C et H > 40%),
+  point de rosée (Td = T - ((100 - H) / 5)), écart intérieur/extérieur (ΔT)
+- Histogramme de distribution (mode exclusif, tranches 0.5°C)
+- Scatter temp/humidité (mode exclusif, nuage de points)
+
+Plage temporelle : boutons rapides (12h, 24h, 7j, 30j, 90j, 1 an) +
+date pickers libres "Du / Au". Les deux mécanismes sont exclusifs.
+
+Légende explicative dynamique sous le graphique (visible uniquement si au moins
+une case cochée, contenu adapté aux cases actives).
+
+Préférences (cases cochées + dernière plage) persistées en localStorage.
 
 ---
 

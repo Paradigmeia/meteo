@@ -13,6 +13,7 @@
 | LOT 2 | Frontend React — dashboard temps réel | ✅ Livré | #6 | lot2-frontend |
 | LOT 3 | Frontend React — historique + graphiques | 🗄️ Abandonné — absorbé par LOT 2 (2026-05-30) | — | — |
 | LOT 4 | Déploiement OVH — Nginx + systemd + HTTPS | ✅ Livré | #7 | lot4-deploy |
+| LOT 5 | Frontend React — vue Analyse desktop (multi-courbes, expert) | 🔄 En cours | — | feat/5-vue-analyse |
 
 Légende : 🔲 À faire · 🔄 En cours · ✅ Livré · ⚠️ Dette technique · 🗄️ Abandonné
 
@@ -26,6 +27,20 @@ Légende : 🔲 À faire · 🔄 En cours · ✅ Livré · ⚠️ Dette techniqu
 ---
 
 ## Changelog
+
+### 2026-06-20 — LOT 5 ouvert : vue Analyse desktop (issue #19)
+
+- Nouveau LOT 5 créé : vue expert desktop multi-courbes
+- Accès via bouton icône header (desktop uniquement, ≥ 768px)
+- Données : mesures brutes par sonde, Open-Meteo, moyennes glissantes,
+  bande min/max, indices de confort (Heat Index, point de rosée, écart Δ),
+  histogramme de distribution, scatter temp/humidité
+- Sélecteur de plage : boutons rapides (12h→1an) + date pickers libres
+- Panneau de sélection latéral avec checkboxes par groupe
+- Légende explicative dynamique (affichée selon cases cochées)
+- Préférences persistées en localStorage
+- SPEC.md v1.1 → v1.2 : §4.6 ajouté
+- PLAN.md v1.1 → v1.2 : arborescence + nouveaux composants + backend route
 
 ### 2026-06-20 — Masquage des sondes pas encore achetées (`chambre-parents`, `chambre-jade`)
 
