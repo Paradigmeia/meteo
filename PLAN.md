@@ -155,6 +155,13 @@ Ce que la maquette montre et que le code doit reproduire :
 - **Pourquoi** : Avec ce paramètre, l'API retourne les champs préfixés (`temperature_2m_best_match`, etc.) au lieu des noms standard (`temperature_2m`). Le frontend ne gérait pas ces préfixes → données météo manquantes.
 - **Trade-off** : La comparaison AROME vs ECMWF (badge "Accord/Divergentes") n'est plus disponible en v1. Peut être réactivée en v2 avec parsing dédié.
 
+### Décision 9 (2026-06-20)
+
+- **Contexte** : `chambre-parents` et `chambre-jade` sont en base depuis le LOT 1 (sondes prévues mais pas encore achetées) et s'affichaient sur le dashboard avec "Aucune donnée" / badge "Hors ligne" permanent
+- **Choix** : `GET /api/sondes` filtre désormais sur `actif = 1` — le champ `actif` était stocké depuis le LOT 1 mais jamais exploité par le frontend
+- **Pourquoi** : Une sonde non achetée ne doit pas apparaître sur le dashboard familial. Activer une sonde déjà en base quand le hardware est installé = `UPDATE sondes SET actif = 1`, sans déploiement de code (cf. décision 4)
+- **Trade-off** : Aucun changement de comportement pour les sondes déjà actives. Nécessite un redéploiement (`scripts/update.sh`) pour que ce filtre prenne effet, contrairement à un simple flip de `actif` qui lui ne demande rien
+
 ---
 
 ## 7. Décisions abandonnées (historique)

@@ -50,7 +50,7 @@ CREATE TABLE sondes (
     id        INTEGER PRIMARY KEY AUTOINCREMENT,
     slug      TEXT NOT NULL UNIQUE,  -- ex: 'chambre-parents', 'salon', 'exterieur'
     nom       TEXT NOT NULL,         -- ex: 'Chambre parents'
-    actif     BOOLEAN DEFAULT TRUE
+    actif     BOOLEAN DEFAULT TRUE  -- false = sonde pas encore achetée/installée, masquée du dashboard
 );
 
 CREATE TABLE releves (
@@ -102,6 +102,7 @@ Page principale, accessible sans authentification.
 
 Affichage :
 - Bloc météo Ascain en tête de page (cf. §4.4)
+- Seules les sondes actives (`actif = true`) sont affichées — une sonde pas encore achetée/installée reste en base (table de référence) mais n'apparaît pas sur le dashboard
 - Section "Intérieur" : cards pour les sondes intérieures
 - Section "Extérieur" : card dédiée pour la sonde extérieure
 - Une card par sonde : nom, température actuelle, humidité actuelle, heure du dernier relevé
@@ -126,14 +127,14 @@ Vue détail par sonde, accessible par tap sur la card depuis le dashboard.
 
 ### 4.4 Sondes prévues
 
-| Slug | Nom affiché | Type |
-|---|---|---|
-| `chambre-parents` | Chambre parents | Intérieur |
-| `chambre-jade` | Chambre Jade | Intérieur |
-| `salon` | Salon | Intérieur |
-| `exterieur` | Extérieur | Extérieur |
+| Slug | Nom affiché | Type | Statut (2026-06-20) |
+|---|---|---|---|
+| `chambre-parents` | Chambre parents | Intérieur | 🔲 Pas encore achetée — en base, `actif=false`, masquée du dashboard |
+| `chambre-jade` | Chambre Jade | Intérieur | 🔲 Pas encore achetée — en base, `actif=false`, masquée du dashboard |
+| `salon` | Salon | Intérieur | ✅ Installée et active |
+| `exterieur` | Extérieur | Extérieur | ✅ Installée et active |
 
-**Démarrage réel avec 1 sonde** (validation hardware), les 3 autres s'ajoutent en base sans changement de code.
+**Démarrage réel avec 1 sonde** (validation hardware), les autres s'ajoutent en base sans changement de code — activer une sonde déjà installée = `UPDATE sondes SET actif = 1`, aucun déploiement nécessaire pour le code (cf. §4.2).
 
 ### 4.5 Météo locale Ascain
 
