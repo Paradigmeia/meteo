@@ -16,9 +16,11 @@ export default function App() {
     return <AnalyseView sondes={sondes} meteo={meteo} onBack={() => setAnalyseOpen(false)} />
   }
 
-  if (selected) {
-    return <Detail slug={selected} nom={sondes.find(s => s.slug === selected)?.nom} onBack={() => setSelected(null)} />
-  }
-
-  return <Dashboard sondes={sondes} meteo={meteo} onSelectSonde={setSelected} onOpenAnalyse={() => setAnalyseOpen(true)} />
+  return (
+    <div className="app-shell">
+      {selected
+        ? <Detail slug={selected} nom={sondes.find(s => s.slug === selected)?.nom} onBack={() => setSelected(null)} />
+        : <Dashboard sondes={sondes} meteo={meteo} onSelectSonde={setSelected} onOpenAnalyse={() => setAnalyseOpen(true)} />}
+    </div>
+  )
 }

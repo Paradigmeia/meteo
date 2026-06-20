@@ -28,6 +28,13 @@ Légende : 🔲 À faire · 🔄 En cours · ✅ Livré · ⚠️ Dette techniqu
 
 ## Changelog
 
+### 2026-06-20 — LOT 5 fix layout : Vue Analyse pleine largeur desktop (issue #21)
+
+- `AnalyseView` extraite du conteneur `max-width: 390px` mobile : `#root` n'impose plus cette limite globalement, c'est désormais `.app-shell` (Dashboard/Detail) qui la porte — `AnalyseView` utilise son propre `.analyse-container` (`calc(100vw - 4rem)`, max `1800px`)
+- Layout deux colonnes inchangé en pratique (`.analyse-layout` : panneau 240px + graphique `1fr`), mais peut désormais s'étendre sur toute la largeur disponible au lieu d'être écrasé à 390px
+- Hauteur du graphique SVG portée à 480px (au lieu de 400px)
+- Dashboard et vue détail sonde : apparence mobile centrée inchangée (vérifié à 390px et 1920px de largeur viewport)
+
 ### 2026-06-20 — LOT 5 ouvert : vue Analyse desktop (issue #19)
 
 - Nouveau LOT 5 créé : vue expert desktop multi-courbes

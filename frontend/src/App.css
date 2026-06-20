@@ -1,3 +1,5 @@
+.app-shell { width: 100%; max-width: 390px; margin: 0 auto; }
+
 .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; }
 .header-sub { font-size: 12px; color: #8C8880; }
 .header-title { font-size: 22px; font-weight: 500; margin-top: 2px; }
@@ -73,6 +75,7 @@
 .legend-item { font-size: 11px; color: #6B6560; display: flex; align-items: center; gap: 6px; }
 
 .analyse-btn { background: none; border: none; cursor: pointer; padding: 0; display: flex; align-items: center; }
+.analyse-container { width: calc(100vw - 4rem); max-width: 1800px; margin: 0 auto; }
 .analyse-layout { display: grid; grid-template-columns: 240px 1fr; gap: 24px; align-items: start; }
 .analyse-sidebar { background: #FFF9F2; border: 1px solid rgba(0,0,0,.06); border-radius: 16px; padding: 1.25rem; position: sticky; top: 1rem; }
 .analyse-group { margin-bottom: 1.25rem; }
