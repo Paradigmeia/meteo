@@ -34,7 +34,7 @@ Légende : 🔲 À faire · 🔄 En cours · ✅ Livré · ⚠️ Dette techniqu
 - Aucun changement de code : le dashboard affiche déjà la sonde (section "Extérieur" déjà câblée dans `Dashboard.jsx` sur le préfixe de slug `ext*`), en attente du premier relevé webhook
 - Config Shelly à saisir côté boîtier (2 actions "URL action" — cf. SPEC.md §4.1) :
   - Changement de température → `https://meteo.paradigme.me/api/releve/exterieur?temp=${ev.tC}&key=<API_KEY>`
-  - Changement d'humidité → `https://meteo.paradigme.me/api/releve/exterieur?hum=${ev.h}&key=<API_KEY>`
+  - Changement d'humidité → `https://meteo.paradigme.me/api/releve/exterieur?hum=${ev.rh}&key=<API_KEY>`
   - `<API_KEY>` : valeur stockée dans `backend/.env`
 
 ### 2026-06-20 — Issue #14 : panneau de survol fixe remplaçant le tooltip flottant
