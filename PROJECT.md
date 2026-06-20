@@ -27,6 +27,16 @@ Légende : 🔲 À faire · 🔄 En cours · ✅ Livré · ⚠️ Dette techniqu
 
 ## Changelog
 
+### 2026-06-20 — Activation de la sonde extérieure (boîtier physique installé)
+
+- Boîtier Shelly H&T Gen3 extérieur installé physiquement (boîtier abrité, cf. PLAN.md décision 1)
+- Base de production (`data/maison.db`) : `UPDATE sondes SET actif = 1 WHERE slug = 'exterieur'` — la ligne existait depuis le LOT 1 (PLAN.md décision 4 : ajouter une sonde = donnée en base, pas de code), seul le flag d'activation manquait
+- Aucun changement de code : le dashboard affiche déjà la sonde (section "Extérieur" déjà câblée dans `Dashboard.jsx` sur le préfixe de slug `ext*`), en attente du premier relevé webhook
+- Config Shelly à saisir côté boîtier (2 actions "URL action" — cf. SPEC.md §4.1) :
+  - Changement de température → `https://meteo.paradigme.me/api/releve/exterieur?temp=${ev.tC}&key=<API_KEY>`
+  - Changement d'humidité → `https://meteo.paradigme.me/api/releve/exterieur?hum=${ev.rh}&key=<API_KEY>`
+  - `<API_KEY>` : valeur stockée dans `backend/.env`
+
 ### 2026-06-20 — Issue #14 : panneau de survol fixe remplaçant le tooltip flottant
 
 - **`HistoriqueChart.jsx`** : suppression du tooltip flottant SVG (bulle + texte) — conservation
