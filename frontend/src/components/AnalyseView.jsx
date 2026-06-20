@@ -173,7 +173,7 @@ export default function AnalyseView({ sondes, meteo, onBack }) {
       : [...lines, ...bandEntries]
 
   return (
-    <>
+    <div className="analyse-container">
       <button className="back-btn" onClick={onBack}>
         <i className="ti ti-arrow-left" />
         Retour
@@ -325,6 +325,6 @@ export default function AnalyseView({ sondes, meteo, onBack }) {
           )}
         </div>
       </div>
-    </>
+    </div>
   )
 }

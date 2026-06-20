@@ -2,7 +2,7 @@ import { useRef, useState } from 'react'
 import { niceTicks, linearScale, smooth } from '../utils/chartUtils'
 import { getTimeTicks, histogramBins } from '../utils/analyseUtils'
 
-const W = 900, H = 400
+const W = 900, H = 480
 const PL = 56, PR = 56, PT = 24, PB = 32
 const X0 = PL, X1 = W - PR, Y0 = PT, Y1 = H - PB
 
