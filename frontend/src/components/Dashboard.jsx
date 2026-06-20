@@ -1,7 +1,9 @@
 import MeteoCard from './MeteoCard'
 import SondeCard from './SondeCard'
+import { useIsDesktop } from '../hooks/useIsDesktop'
 
-export default function Dashboard({ sondes, meteo, onSelectSonde }) {
+export default function Dashboard({ sondes, meteo, onSelectSonde, onOpenAnalyse }) {
+  const isDesktop = useIsDesktop()
   const now = new Date()
   const dateLabel = now.toLocaleDateString('fr', { weekday: 'short', day: 'numeric', month: 'long', year: 'numeric' })
   const dateFormatted = dateLabel.charAt(0).toUpperCase() + dateLabel.slice(1)
@@ -20,7 +22,14 @@ export default function Dashboard({ sondes, meteo, onSelectSonde }) {
           <div className="header-sub">{dateFormatted}</div>
           <div className="header-title">La maison</div>
         </div>
-        <i className="ti ti-home-2" style={{ fontSize: 24, color: '#B5B0A8' }} />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+          {isDesktop && (
+            <button className="analyse-btn" onClick={onOpenAnalyse} aria-label="Vue Analyse">
+              <i className="ti ti-chart-dots-3" style={{ fontSize: 22, color: '#B5B0A8' }} />
+            </button>
+          )}
+          <i className="ti ti-home-2" style={{ fontSize: 24, color: '#B5B0A8' }} />
+        </div>
       </div>
 
       <MeteoCard meteo={meteo} />

@@ -1,8 +1,8 @@
 # PLAN.md — maison-temp
 
-**Version** : 1.1
-**Date** : 2026-05-23
-**Référence** : SPEC.md v1.1
+**Version** : 1.2
+**Date** : 2026-06-20
+**Référence** : SPEC.md v1.2
 
 ---
 
@@ -23,7 +23,9 @@ maison-temp/
 │   │   │   ├── MeteoCard.jsx          # Bloc météo complet (actuel + horaire + J+1)
 │   │   │   ├── HourlyStrip.jsx        # Bandeau horaire scrollable
 │   │   │   ├── SondeCard.jsx          # Card sonde temps réel
-│   │   │   └── HistoriqueChart.jsx    # Graphique Chart.js dual-axe
+│   │   │   ├── HistoriqueChart.jsx    # Graphique Chart.js dual-axe
+│   │   │   ├── AnalyseView.jsx        # Vue Analyse complète (desktop)
+│   │   │   └── AnalyseChart.jsx       # Graphique SVG multi-courbes
 │   │   └── main.jsx
 │   ├── index.html
 │   ├── package.json
@@ -161,6 +163,17 @@ Ce que la maquette montre et que le code doit reproduire :
 - **Choix** : `GET /api/sondes` filtre désormais sur `actif = 1` — le champ `actif` était stocké depuis le LOT 1 mais jamais exploité par le frontend
 - **Pourquoi** : Une sonde non achetée ne doit pas apparaître sur le dashboard familial. Activer une sonde déjà en base quand le hardware est installé = `UPDATE sondes SET actif = 1`, sans déploiement de code (cf. décision 4)
 - **Trade-off** : Aucun changement de comportement pour les sondes déjà actives. Nécessite un redéploiement (`scripts/update.sh`) pour que ce filtre prenne effet, contrairement à un simple flip de `actif` qui lui ne demande rien
+
+### Décision 10 (2026-06-20)
+
+- **Contexte** : Vue expert desktop avec de nombreuses séries de données simultanées (issue #19)
+- **Choix** : Calculs (moyennes glissantes, Heat Index, point de rosée) effectués
+  côté frontend à partir des données brutes reçues de l'API
+- **Pourquoi** : Évite de multiplier les endpoints backend ; les volumes de données
+  sur les plages courtes (12h-7j) sont compatibles avec un calcul JS ; backend
+  reste simple et non couplé aux préférences UI
+- **Trade-off** : Sur 90j/1an avec 4 sondes, le volume de points peut être élevé.
+  Si perf insuffisante, migrer les calculs côté backend en v2.
 
 ---
 
