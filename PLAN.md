@@ -138,7 +138,7 @@ Ce que la maquette montre et que le code doit reproduire :
 
 - **Contexte** : Intégration réelle du Shelly H&T Gen3 (firmware HTG3/1.7.5)
 - **Choix** : Endpoint GET `POST /api/releve/{slug}` complété par `GET /api/releve/{slug}?temp=X&hum=Y&key=TOKEN`
-- **Pourquoi** : Le firmware Shelly ne supporte que les URL actions GET, et envoie temp et humidité sur deux events distincts. `${ev.h}` est null sur l'event température et vice-versa. Solution : deux actions Shelly séparées ("Changement de température" / "Changement d'humidité"), `temp` et `hum` optionnels en query param.
+- **Pourquoi** : Le firmware Shelly ne supporte que les URL actions GET, et envoie temp et humidité sur deux events distincts. La variable humidité est `${ev.rh}` (relative humidity) — `${ev.h}` est null dans tous les events. Solution : deux actions Shelly séparées ("Changement de température" / "Changement d'humidité"), `temp` et `hum` optionnels en query param.
 - **Trade-off** : La clé API est dans l'URL (visible dans les logs Nginx). Acceptable pour usage domestique — le dashboard est déjà en lecture libre.
 
 ### Décision 7 (2026-06-01)

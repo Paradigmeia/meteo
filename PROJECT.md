@@ -27,6 +27,13 @@ Légende : 🔲 À faire · 🔄 En cours · ✅ Livré · ⚠️ Dette techniqu
 
 ## Changelog
 
+### 2026-06-20 — Fix variable Shelly humidité : `${ev.h}` → `${ev.rh}` (récupération d'un fix orphelin)
+
+- Variable correcte pour l'humidité sur firmware HTG3/1.7.5 : `${ev.rh}` (relative humidity) — `${ev.h}` est toujours null, confirmé en production sur la sonde `salon`
+- Ce fix avait déjà été identifié et commité le 2026-06-18 sur la branche `fix/shelly-null-params` (commit `81ce138`), mais n'avait jamais été intégré à la PR #11 ni mergé sur `main` — repéré en repartant des logs de la sonde `exterieur` qui recevait `hum=null` en boucle (422) malgré une config d'action a priori correcte
+- **`SPEC.md`** §4.1, **`PLAN.md`** décision 6, **`backend/main.py`** (docstrings `_parse_shelly_value` et `get_releve`) mis à jour
+- Aucun changement de comportement backend : le paramètre reçu reste `hum=`, seule la variable Shelly côté boîtier change. Action à reconfigurer sur chaque boîtier physique existant si l'action "Changement d'humidité" utilise encore `${ev.h}`
+
 ### 2026-06-20 — Activation de la sonde extérieure (boîtier physique installé)
 
 - Boîtier Shelly H&T Gen3 extérieur installé physiquement (boîtier abrité, cf. PLAN.md décision 1)
