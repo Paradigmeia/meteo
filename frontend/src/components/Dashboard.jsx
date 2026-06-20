@@ -39,7 +39,7 @@ export default function Dashboard({ sondes, meteo, onSelectSonde, onOpenAnalyse 
           <p className="section-label">Intérieur</p>
           <div className="sonde-grid">
             {intSondes.map(s => (
-              <SondeCard key={s.slug} sonde={s} onClick={() => onSelectSonde(s.slug)} />
+              <SondeCard key={s.slug} sonde={s} fullWidth={intSondes.length === 1} onClick={() => onSelectSonde(s.slug)} />
             ))}
           </div>
         </>
@@ -50,7 +50,7 @@ export default function Dashboard({ sondes, meteo, onSelectSonde, onOpenAnalyse 
           <p className="section-label">Extérieur</p>
           <div className="sonde-grid">
             {extSondes.map(s => (
-              <SondeCard key={s.slug} sonde={s} fullWidth onClick={() => onSelectSonde(s.slug)} />
+              <SondeCard key={s.slug} sonde={s} fullWidth={extSondes.length === 1} onClick={() => onSelectSonde(s.slug)} />
             ))}
           </div>
         </>

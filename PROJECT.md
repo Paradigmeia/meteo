@@ -28,6 +28,12 @@ Légende : 🔲 À faire · 🔄 En cours · ✅ Livré · ⚠️ Dette techniqu
 
 ## Changelog
 
+### 2026-06-20 — Fix uniformisation des cartes sondes (dashboard mobile/desktop)
+
+- `Dashboard.jsx` : `fullWidth` sur `SondeCard` n'est plus codé en dur pour la section "Extérieur" seule, mais dérivé du nombre de sondes de chaque section (`fullWidth = sondes.length === 1`)
+- Avant : avec une seule sonde intérieure (`Salon`), la carte restait à moitié largeur dans la grille 2 colonnes (`175×129px`, contenu empilé verticalement) alors que la carte `Extérieur` (toujours `fullWidth`) occupait `358×66px` — rendu visuellement non uniforme
+- Après : les deux cartes ont la même taille et le même style compact tant que chaque section ne contient qu'une seule sonde ; le rendu en grille 2 colonnes (cartes carrées) reste inchangé si une section contient plusieurs sondes (ex: réactivation future de `chambre-parents`/`chambre-jade`)
+
 ### 2026-06-20 — LOT 5 fix layout : Vue Analyse pleine largeur desktop (issue #21)
 
 - `AnalyseView` extraite du conteneur `max-width: 390px` mobile : `#root` n'impose plus cette limite globalement, c'est désormais `.app-shell` (Dashboard/Detail) qui la porte — `AnalyseView` utilise son propre `.analyse-container` (`calc(100vw - 4rem)`, max `1800px`)
