@@ -1,8 +1,8 @@
 # PLAN.md — maison-temp
 
-**Version** : 1.2
-**Date** : 2026-06-20
-**Référence** : SPEC.md v1.2
+**Version** : 1.3
+**Date** : 2026-07-04
+**Référence** : SPEC.md v1.3
 
 ---
 
@@ -174,6 +174,24 @@ Ce que la maquette montre et que le code doit reproduire :
   reste simple et non couplé aux préférences UI
 - **Trade-off** : Sur 90j/1an avec 4 sondes, le volume de points peut être élevé.
   Si perf insuffisante, migrer les calculs côté backend en v2.
+
+### Décision 11 (2026-07-04)
+
+- **Contexte** : Vue Analyse — le graphique combiné à double axe devient
+  difficile à lire dès que plusieurs séries température (brutes, moyennes
+  glissantes, indices de confort, ΔT, Open-Meteo) sont actives en même temps
+  que l'humidité
+- **Choix** : Bouton bascule "Combiné / Séparé" (`AnalyseChart.jsx`,
+  `AnalyseView.jsx`) — en mode séparé, deux graphiques empilés à axe unique
+  remplacent le graphique double-axe ; axe X et curseur de survol partagés
+- **Pourquoi** : Un graphique à deux échelles superposées oblige à interpréter
+  visuellement quelle courbe se rapporte à quel axe ; deux graphiques à axe
+  unique lèvent l'ambiguïté sans rien perdre de l'alignement temporel
+- **Trade-off** : Légèrement plus de hauteur totale à l'écran en mode séparé
+  (deux graphiques de 220px + espacement, contre 480px en mode combiné).
+  L'humidité brute perd son style pointillé en mode séparé (redevient un
+  trait plein, plus besoin de la distinguer visuellement de la température
+  puisqu'elle est sur son propre graphique)
 
 ---
 
