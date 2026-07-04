@@ -74,6 +74,10 @@
 .chart-legend { display: flex; gap: 16px; margin-bottom: 10px; }
 .legend-item { font-size: 11px; color: #6B6560; display: flex; align-items: center; gap: 6px; }
 
+.axis-toggle { display: inline-flex; gap: 6px; margin-bottom: 1rem; }
+.axis-toggle-btn { background: #EDE6DB; border: none; border-radius: 8px; padding: 8px 14px; font-size: 13px; color: #6B6560; cursor: pointer; transition: all .12s; }
+.axis-toggle-btn.active { background: #1A1714; color: #F7F3EE; }
+
 .analyse-btn { background: none; border: none; cursor: pointer; padding: 0; display: flex; align-items: center; }
 .analyse-container { width: calc(100vw - 4rem); max-width: 1800px; margin: 0 auto; }
 .analyse-layout { display: grid; grid-template-columns: 240px 1fr; gap: 24px; align-items: start; }

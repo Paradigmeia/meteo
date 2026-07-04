@@ -28,6 +28,21 @@ Légende : 🔲 À faire · 🔄 En cours · ✅ Livré · ⚠️ Dette techniqu
 
 ## Changelog
 
+### 2026-07-04 — LOT 5 : bouton "Combiné / Séparé" pour les axes température/humidité (issue #24)
+
+- `AnalyseChart.jsx` : `LineChart` rend soit le graphique combiné à double axe
+  existant (`splitAxes=false`, comportement inchangé), soit deux graphiques
+  empilés à axe unique (`splitAxes=true`) — température en haut (axe gauche
+  ambre), humidité en bas (axe gauche teal) ; axe X et curseur de survol
+  partagés entre les deux panneaux
+- `AnalyseView.jsx` : nouvel état `splitAxes` (persisté en localStorage),
+  bouton bascule affiché au-dessus de la carte graphique, visible uniquement
+  en mode ligne ; l'humidité brute passe de pointillée à trait plein quand
+  `splitAxes` est actif
+- `App.css` : nouvelles classes `.axis-toggle` / `.axis-toggle-btn`
+- SPEC.md v1.2 → v1.3 : §4.6 complétée
+- PLAN.md v1.2 → v1.3 : décision 11 ajoutée
+
 ### 2026-06-20 — Fix uniformisation des cartes sondes (dashboard mobile/desktop)
 
 - `Dashboard.jsx` : `fullWidth` sur `SondeCard` n'est plus codé en dur pour la section "Extérieur" seule, mais dérivé du nombre de sondes de chaque section (`fullWidth = sondes.length === 1`)

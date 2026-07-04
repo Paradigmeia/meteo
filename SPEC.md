@@ -1,7 +1,7 @@
 # SPEC.md — maison-temp
 
-**Version** : 1.2
-**Date** : 2026-06-20
+**Version** : 1.3
+**Date** : 2026-07-04
 **Objectif principal** : Suivre en temps réel et en historique les températures et taux d'humidité de la maison (intérieur + extérieur) via un dashboard web responsive accessible en ligne.
 
 ---
@@ -188,6 +188,15 @@ pleine largeur) toute combinaison de :
   point de rosée (Td = T - ((100 - H) / 5)), écart intérieur/extérieur (ΔT)
 - Histogramme de distribution (mode exclusif, tranches 0.5°C)
 - Scatter temp/humidité (mode exclusif, nuage de points)
+
+En mode ligne (courbes), un bouton bascule "Combiné / Séparé" permet de choisir
+entre un graphique unique à double axe (température à gauche, humidité à
+droite — comportement historique) et deux graphiques empilés à axe unique
+(température en haut, humidité en bas), plus lisibles dès que plusieurs
+séries sont actives simultanément. Absent en mode histogramme et nuage de
+points. Axe X et curseur de survol partagés entre les deux graphiques en
+mode séparé. Préférence persistée en localStorage comme les autres réglages
+de cette vue.
 
 Plage temporelle : boutons rapides (12h, 24h, 7j, 30j, 90j, 1 an) +
 date pickers libres "Du / Au". Les deux mécanismes sont exclusifs.

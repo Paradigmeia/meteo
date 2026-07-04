@@ -6,6 +6,14 @@ const W = 900, H = 480
 const PL = 56, PR = 56, PT = 24, PB = 32
 const X0 = PL, X1 = W - PR, Y0 = PT, Y1 = H - PB
 
+// Géométrie du mode "axes séparés" : un seul axe (gauche) par panneau, donc
+// moins de marge droite nécessaire. PL reste identique au mode combiné pour
+// garder les graduations temporelles alignées verticalement entre les deux
+// panneaux et par rapport au mode combiné.
+const SPLIT_X0 = PL, SPLIT_X1 = W - 20
+const SPLIT_TOP_H = 220, SPLIT_TOP_Y0 = 16, SPLIT_TOP_Y1 = SPLIT_TOP_H - 8
+const SPLIT_BOTTOM_H = 220, SPLIT_BOTTOM_Y0 = 8, SPLIT_BOTTOM_Y1 = SPLIT_BOTTOM_H - 32
+
 function EmptyState({ message }) {
   return (
     <div style={{ height: H, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#B5B0A8', fontSize: 13 }}>
@@ -14,7 +22,7 @@ function EmptyState({ message }) {
   )
 }
 
-function LineChart({ lines, bands, onHover }) {
+function LineChart({ lines, bands, splitAxes, onHover }) {
   const [hoverX, setHoverX] = useState(null)
   const touchActiveRef = useRef(false)
 
@@ -28,32 +36,34 @@ function LineChart({ lines, bands, onHover }) {
 
   const minTime = Math.min(...allTimes)
   const maxTime = Math.max(...allTimes)
-  const xOf = t => (maxTime === minTime ? (X0 + X1) / 2 : linearScale(t, minTime, maxTime, X0, X1))
-  const invXOf = svgX => minTime + ((svgX - X0) / (X1 - X0)) * (maxTime - minTime)
+  const curX0 = splitAxes ? SPLIT_X0 : X0
+  const curX1 = splitAxes ? SPLIT_X1 : X1
+  const xOf = t => (maxTime === minTime ? (curX0 + curX1) / 2 : linearScale(t, minTime, maxTime, curX0, curX1))
+  const invXOf = svgX => minTime + ((svgX - curX0) / (curX1 - curX0)) * (maxTime - minTime)
+
+  const tempLines = lines.filter(l => l.axis === 'temp')
+  const humLines = lines.filter(l => l.axis === 'hum')
 
   const tempValues = [
-    ...lines.filter(l => l.axis === 'temp').flatMap(l => l.points.map(p => p.v)),
+    ...tempLines.flatMap(l => l.points.map(p => p.v)),
     ...bands.flatMap(b => b.bands.flatMap(d => [d.min, d.max])),
   ]
-  const humValues = lines.filter(l => l.axis === 'hum').flatMap(l => l.points.map(p => p.v))
+  const humValues = humLines.flatMap(l => l.points.map(p => p.v))
 
-  let yOfTemp = null, tempTicks = []
-  if (tempValues.length) {
-    const minT = Math.min(...tempValues), maxT = Math.max(...tempValues)
-    const span = maxT - minT || 1
-    const domMin = minT - span * 0.08, domMax = maxT + span * 0.08
-    yOfTemp = v => linearScale(v, domMin, domMax, Y1, Y0)
-    tempTicks = niceTicks(minT, maxT, 5)
+  function buildScale(values, rangeTop, rangeBottom, tickCount) {
+    if (!values.length) return { yOf: null, ticks: [] }
+    const min = Math.min(...values), max = Math.max(...values)
+    const span = max - min || 1
+    const domMin = min - span * 0.08, domMax = max + span * 0.08
+    return { yOf: v => linearScale(v, domMin, domMax, rangeBottom, rangeTop), ticks: niceTicks(min, max, tickCount) }
   }
 
-  let yOfHum = null, humTicks = []
-  if (humValues.length) {
-    const minH = Math.min(...humValues), maxH = Math.max(...humValues)
-    const span = maxH - minH || 1
-    const domMin = minH - span * 0.08, domMax = maxH + span * 0.08
-    yOfHum = v => linearScale(v, domMin, domMax, Y1, Y0)
-    humTicks = niceTicks(minH, maxH, 4)
-  }
+  // Échelles du mode combiné (double axe, un seul graphique) — inchangées par rapport à avant
+  const combinedTemp = buildScale(tempValues, Y0, Y1, 5)
+  const combinedHum = buildScale(humValues, Y0, Y1, 4)
+  // Échelles dédiées au mode séparé (chaque panneau a sa propre plage de pixels)
+  const splitTemp = buildScale(tempValues, SPLIT_TOP_Y0, SPLIT_TOP_Y1, 5)
+  const splitHum = buildScale(humValues, SPLIT_BOTTOM_Y0, SPLIT_BOTTOM_Y1, 4)
 
   const xTicks = getTimeTicks(minTime, maxTime, xOf)
 
@@ -69,7 +79,7 @@ function LineChart({ lines, bands, onHover }) {
   function getSvgX(e) {
     const rect = e.currentTarget.getBoundingClientRect()
     const clientX = e.touches ? e.touches[0].clientX : e.clientX
-    return Math.max(X0, Math.min(X1, ((clientX - rect.left) / rect.width) * W))
+    return Math.max(curX0, Math.min(curX1, ((clientX - rect.left) / rect.width) * W))
   }
 
   function updateHover(e) {
@@ -92,64 +102,120 @@ function LineChart({ lines, bands, onHover }) {
   function handleTouchStart(e) { touchActiveRef.current = true; updateHover(e) }
   function handleTouchMove(e) { e.preventDefault(); updateHover(e) }
 
+  // Handlers communs aux 3 <svg> possibles (combiné, ou haut+bas en mode séparé) :
+  // survoler n'importe lequel met à jour le même curseur et le même panneau de survol.
+  const eventHandlers = {
+    onMouseMove: handleMouseMove,
+    onMouseLeave: handleMouseLeave,
+    onTouchStart: handleTouchStart,
+    onTouchMove: handleTouchMove,
+  }
+
+  function renderLine(line, yOf) {
+    if (!yOf || line.points.length === 0) return null
+    if (line.points.length === 1) {
+      const p = line.points[0]
+      return <circle key={line.id} cx={xOf(p.t)} cy={yOf(p.v)} r="2.5" fill={line.color} />
+    }
+    const pts = line.points.map(p => [xOf(p.t), yOf(p.v)])
+    return (
+      <path
+        key={line.id} d={smooth(pts)} fill="none" stroke={line.color}
+        strokeWidth={line.width ?? 2} strokeOpacity={line.opacity ?? 1}
+        strokeDasharray={line.dash} strokeLinejoin="round"
+      />
+    )
+  }
+
+  if (!splitAxes) {
+    return (
+      <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', height: H, touchAction: 'none', display: 'block' }} {...eventHandlers}>
+        {combinedTemp.yOf && combinedTemp.ticks.map(v => (
+          <line key={`grid-${v}`} x1={X0} y1={combinedTemp.yOf(v)} x2={X1} y2={combinedTemp.yOf(v)} stroke="rgba(0,0,0,0.06)" strokeWidth="0.5" />
+        ))}
+        {xTicks.map(t => (
+          <line key={`vgrid-${t.time}`} x1={t.x} y1={Y0} x2={t.x} y2={Y1} stroke="rgba(0,0,0,0.04)" strokeWidth="0.5" strokeDasharray="2 4" />
+        ))}
+        {bands.flatMap(b => b.bands.map(d => (
+          combinedTemp.yOf && (
+            <rect
+              key={`${b.id}-${d.dayStart}`}
+              x={xOf(d.dayStart)} width={Math.max(0, xOf(d.dayEnd) - xOf(d.dayStart))}
+              y={combinedTemp.yOf(d.max)} height={Math.max(0, combinedTemp.yOf(d.min) - combinedTemp.yOf(d.max))}
+              fill={b.color} fillOpacity="0.14"
+            />
+          )
+        )))}
+        {lines.map(line => renderLine(line, line.axis === 'temp' ? combinedTemp.yOf : combinedHum.yOf))}
+        {combinedTemp.yOf && combinedTemp.ticks.map(v => (
+          <text key={`tl-${v}`} x={X0 - 6} y={combinedTemp.yOf(v) + 3.5} fill="#BA7517" fontSize="10" textAnchor="end">{v.toFixed(1)}°</text>
+        ))}
+        {combinedHum.yOf && combinedHum.ticks.map(v => (
+          <text key={`hl-${v}`} x={X1 + 6} y={combinedHum.yOf(v) + 3.5} fill="#1D9E75" fontSize="10" textAnchor="start">{Math.round(v)}%</text>
+        ))}
+        {xTicks.map(t => (
+          <text key={`xl-${t.time}`} x={t.x} y={H - 8} fill="#B5B0A8" fontSize="10" textAnchor="middle">{t.label}</text>
+        ))}
+        {hoverX != null && (
+          <line x1={hoverX} y1={Y0} x2={hoverX} y2={Y1} stroke="#1A1714" strokeOpacity="0.15" strokeWidth="1" style={{ pointerEvents: 'none' }} />
+        )}
+      </svg>
+    )
+  }
+
+  function renderSplitPanel({ height, y0, y1, scale, panelLines, panelBands, tickColor, formatTick, emptyLabel, showXLabels }) {
+    return (
+      <svg viewBox={`0 0 ${W} ${height}`} style={{ width: '100%', height, touchAction: 'none', display: 'block' }} {...eventHandlers}>
+        {scale.yOf ? (
+          <>
+            {scale.ticks.map(v => (
+              <line key={`grid-${v}`} x1={SPLIT_X0} y1={scale.yOf(v)} x2={SPLIT_X1} y2={scale.yOf(v)} stroke="rgba(0,0,0,0.06)" strokeWidth="0.5" />
+            ))}
+            {xTicks.map(t => (
+              <line key={`vgrid-${t.time}`} x1={t.x} y1={y0} x2={t.x} y2={y1} stroke="rgba(0,0,0,0.04)" strokeWidth="0.5" strokeDasharray="2 4" />
+            ))}
+            {panelBands.flatMap(b => b.bands.map(d => (
+              <rect
+                key={`${b.id}-${d.dayStart}`}
+                x={xOf(d.dayStart)} width={Math.max(0, xOf(d.dayEnd) - xOf(d.dayStart))}
+                y={scale.yOf(d.max)} height={Math.max(0, scale.yOf(d.min) - scale.yOf(d.max))}
+                fill={b.color} fillOpacity="0.14"
+              />
+            )))}
+            {panelLines.map(line => renderLine(line, scale.yOf))}
+            {scale.ticks.map(v => (
+              <text key={`tl-${v}`} x={SPLIT_X0 - 6} y={scale.yOf(v) + 3.5} fill={tickColor} fontSize="10" textAnchor="end">{formatTick(v)}</text>
+            ))}
+            {hoverX != null && (
+              <line x1={hoverX} y1={y0} x2={hoverX} y2={y1} stroke="#1A1714" strokeOpacity="0.15" strokeWidth="1" style={{ pointerEvents: 'none' }} />
+            )}
+          </>
+        ) : (
+          <text x={W / 2} y={height / 2} fill="#B5B0A8" fontSize="13" textAnchor="middle">{emptyLabel}</text>
+        )}
+        {showXLabels && xTicks.map(t => (
+          <text key={`xl-${t.time}`} x={t.x} y={height - 8} fill="#B5B0A8" fontSize="10" textAnchor="middle">{t.label}</text>
+        ))}
+      </svg>
+    )
+  }
+
   return (
-    <svg
-      viewBox={`0 0 ${W} ${H}`}
-      style={{ width: '100%', height: H, touchAction: 'none', display: 'block' }}
-      onMouseMove={handleMouseMove}
-      onMouseLeave={handleMouseLeave}
-      onTouchStart={handleTouchStart}
-      onTouchMove={handleTouchMove}
-    >
-      {yOfTemp && tempTicks.map(v => (
-        <line key={`grid-${v}`} x1={X0} y1={yOfTemp(v)} x2={X1} y2={yOfTemp(v)} stroke="rgba(0,0,0,0.06)" strokeWidth="0.5" />
-      ))}
-      {xTicks.map(t => (
-        <line key={`vgrid-${t.time}`} x1={t.x} y1={Y0} x2={t.x} y2={Y1} stroke="rgba(0,0,0,0.04)" strokeWidth="0.5" strokeDasharray="2 4" />
-      ))}
-
-      {bands.flatMap(b => b.bands.map(d => (
-        yOfTemp && (
-          <rect
-            key={`${b.id}-${d.dayStart}`}
-            x={xOf(d.dayStart)} width={Math.max(0, xOf(d.dayEnd) - xOf(d.dayStart))}
-            y={yOfTemp(d.max)} height={Math.max(0, yOfTemp(d.min) - yOfTemp(d.max))}
-            fill={b.color} fillOpacity="0.14"
-          />
-        )
-      )))}
-
-      {lines.map(line => {
-        const yOf = line.axis === 'temp' ? yOfTemp : yOfHum
-        if (!yOf || line.points.length === 0) return null
-        if (line.points.length === 1) {
-          const p = line.points[0]
-          return <circle key={line.id} cx={xOf(p.t)} cy={yOf(p.v)} r="2.5" fill={line.color} />
-        }
-        const pts = line.points.map(p => [xOf(p.t), yOf(p.v)])
-        return (
-          <path
-            key={line.id} d={smooth(pts)} fill="none" stroke={line.color}
-            strokeWidth={line.width ?? 2} strokeOpacity={line.opacity ?? 1}
-            strokeDasharray={line.dash} strokeLinejoin="round"
-          />
-        )
+    <div>
+      {renderSplitPanel({
+        height: SPLIT_TOP_H, y0: SPLIT_TOP_Y0, y1: SPLIT_TOP_Y1, scale: splitTemp,
+        panelLines: tempLines, panelBands: bands, tickColor: '#BA7517', formatTick: v => `${v.toFixed(1)}°`,
+        emptyLabel: 'Aucune courbe de température active', showXLabels: false,
       })}
 
-      {yOfTemp && tempTicks.map(v => (
-        <text key={`tl-${v}`} x={X0 - 6} y={yOfTemp(v) + 3.5} fill="#BA7517" fontSize="10" textAnchor="end">{v.toFixed(1)}°</text>
-      ))}
-      {yOfHum && humTicks.map(v => (
-        <text key={`hl-${v}`} x={X1 + 6} y={yOfHum(v) + 3.5} fill="#1D9E75" fontSize="10" textAnchor="start">{Math.round(v)}%</text>
-      ))}
-      {xTicks.map(t => (
-        <text key={`xl-${t.time}`} x={t.x} y={H - 8} fill="#B5B0A8" fontSize="10" textAnchor="middle">{t.label}</text>
-      ))}
+      <div style={{ borderTop: '1px solid rgba(0,0,0,.06)', margin: '8px 0' }} />
 
-      {hoverX != null && (
-        <line x1={hoverX} y1={Y0} x2={hoverX} y2={Y1} stroke="#1A1714" strokeOpacity="0.15" strokeWidth="1" style={{ pointerEvents: 'none' }} />
-      )}
-    </svg>
+      {renderSplitPanel({
+        height: SPLIT_BOTTOM_H, y0: SPLIT_BOTTOM_Y0, y1: SPLIT_BOTTOM_Y1, scale: splitHum,
+        panelLines: humLines, panelBands: [], tickColor: '#1D9E75', formatTick: v => `${Math.round(v)}%`,
+        emptyLabel: "Aucune courbe d'humidité active", showXLabels: true,
+      })}
+    </div>
   )
 }
 
@@ -227,8 +293,8 @@ function ScatterChart({ data }) {
   )
 }
 
-export default function AnalyseChart({ mode, lines = [], bands = [], distributionData = [], scatterData = [], onHover }) {
+export default function AnalyseChart({ mode, lines = [], bands = [], distributionData = [], scatterData = [], splitAxes = false, onHover }) {
   if (mode === 'distribution') return <DistributionChart data={distributionData} />
   if (mode === 'scatter') return <ScatterChart data={scatterData} />
-  return <LineChart lines={lines} bands={bands} onHover={onHover} />
+  return <LineChart lines={lines} bands={bands} splitAxes={splitAxes} onHover={onHover} />
 }

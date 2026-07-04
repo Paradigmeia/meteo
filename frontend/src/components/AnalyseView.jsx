@@ -31,6 +31,7 @@ export default function AnalyseView({ sondes, meteo, onBack }) {
   const [deltaT, setDeltaT] = useState(() => initialPrefs.deltaT ?? false)
   const [mode, setMode] = useState(() => initialPrefs.mode ?? 'line')
   const [quickCode, setQuickCode] = useState(() => initialPrefs.quickCode ?? '24h')
+  const [splitAxes, setSplitAxes] = useState(() => initialPrefs.splitAxes ?? false)
 
   const [useCustomRange, setUseCustomRange] = useState(false)
   const [customFrom, setCustomFrom] = useState('')
@@ -41,9 +42,9 @@ export default function AnalyseView({ sondes, meteo, onBack }) {
     saveAnalysePrefs({
       checkedSondes: [...checkedSondes],
       meteoChecked, avg1h, avg6h, minMaxBand, heatIndex, dewPoint, deltaT,
-      mode, quickCode,
+      mode, quickCode, splitAxes,
     })
-  }, [checkedSondes, meteoChecked, avg1h, avg6h, minMaxBand, heatIndex, dewPoint, deltaT, mode, quickCode])
+  }, [checkedSondes, meteoChecked, avg1h, avg6h, minMaxBand, heatIndex, dewPoint, deltaT, mode, quickCode, splitAxes])
 
   const slugs = useMemo(() => sondes.map(s => s.slug), [sondes])
   const customRange = useCustomRange && customFrom && customTo
@@ -87,7 +88,7 @@ export default function AnalyseView({ sondes, meteo, onBack }) {
     const humPts = releves.filter(r => r.humidite != null).map(r => ({ t: new Date(r.recu_le).getTime(), v: r.humidite }))
     const out = []
     if (tempPts.length) out.push({ id: `${s.slug}-temp`, label: `${s.nom} — Température`, color, axis: 'temp', width: 2, points: tempPts })
-    if (humPts.length) out.push({ id: `${s.slug}-hum`, label: `${s.nom} — Humidité`, color, axis: 'hum', width: 2, dash: '4 2', points: humPts })
+    if (humPts.length) out.push({ id: `${s.slug}-hum`, label: `${s.nom} — Humidité`, color, axis: 'hum', width: 2, dash: splitAxes ? undefined : '4 2', points: humPts })
     return out
   })
 
@@ -302,6 +303,17 @@ export default function AnalyseView({ sondes, meteo, onBack }) {
             </div>
           )}
 
+          {mode === 'line' && (
+            <div className="axis-toggle" role="group" aria-label="Affichage des axes">
+              <button type="button" aria-pressed={!splitAxes} className={`axis-toggle-btn${!splitAxes ? ' active' : ''}`} onClick={() => setSplitAxes(false)}>
+                Combiné
+              </button>
+              <button type="button" aria-pressed={splitAxes} className={`axis-toggle-btn${splitAxes ? ' active' : ''}`} onClick={() => setSplitAxes(true)}>
+                Séparé
+              </button>
+            </div>
+          )}
+
           <div className="chart-card">
             <AnalyseChart
               mode={mode}
@@ -309,6 +321,7 @@ export default function AnalyseView({ sondes, meteo, onBack }) {
               bands={bandEntries}
               distributionData={distributionData}
               scatterData={scatterData}
+              splitAxes={splitAxes}
               onHover={setHoverInfo}
             />
           </div>
