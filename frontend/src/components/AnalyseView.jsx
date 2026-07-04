@@ -305,10 +305,10 @@ export default function AnalyseView({ sondes, meteo, onBack }) {
 
           {mode === 'line' && (
             <div className="axis-toggle" role="group" aria-label="Affichage des axes">
-              <button type="button" className={`axis-toggle-btn${!splitAxes ? ' active' : ''}`} onClick={() => setSplitAxes(false)}>
+              <button type="button" aria-pressed={!splitAxes} className={`axis-toggle-btn${!splitAxes ? ' active' : ''}`} onClick={() => setSplitAxes(false)}>
                 Combiné
               </button>
-              <button type="button" className={`axis-toggle-btn${splitAxes ? ' active' : ''}`} onClick={() => setSplitAxes(true)}>
+              <button type="button" aria-pressed={splitAxes} className={`axis-toggle-btn${splitAxes ? ' active' : ''}`} onClick={() => setSplitAxes(true)}>
                 Séparé
               </button>
             </div>

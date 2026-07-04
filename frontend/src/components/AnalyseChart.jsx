@@ -163,64 +163,58 @@ function LineChart({ lines, bands, splitAxes, onHover }) {
     )
   }
 
-  return (
-    <div>
-      <svg viewBox={`0 0 ${W} ${SPLIT_TOP_H}`} style={{ width: '100%', height: SPLIT_TOP_H, touchAction: 'none', display: 'block' }} {...eventHandlers}>
-        {splitTemp.yOf ? (
+  function renderSplitPanel({ height, y0, y1, scale, panelLines, panelBands, tickColor, formatTick, emptyLabel, showXLabels }) {
+    return (
+      <svg viewBox={`0 0 ${W} ${height}`} style={{ width: '100%', height, touchAction: 'none', display: 'block' }} {...eventHandlers}>
+        {scale.yOf ? (
           <>
-            {splitTemp.ticks.map(v => (
-              <line key={`grid-${v}`} x1={SPLIT_X0} y1={splitTemp.yOf(v)} x2={SPLIT_X1} y2={splitTemp.yOf(v)} stroke="rgba(0,0,0,0.06)" strokeWidth="0.5" />
+            {scale.ticks.map(v => (
+              <line key={`grid-${v}`} x1={SPLIT_X0} y1={scale.yOf(v)} x2={SPLIT_X1} y2={scale.yOf(v)} stroke="rgba(0,0,0,0.06)" strokeWidth="0.5" />
             ))}
             {xTicks.map(t => (
-              <line key={`vgrid-${t.time}`} x1={t.x} y1={SPLIT_TOP_Y0} x2={t.x} y2={SPLIT_TOP_Y1} stroke="rgba(0,0,0,0.04)" strokeWidth="0.5" strokeDasharray="2 4" />
+              <line key={`vgrid-${t.time}`} x1={t.x} y1={y0} x2={t.x} y2={y1} stroke="rgba(0,0,0,0.04)" strokeWidth="0.5" strokeDasharray="2 4" />
             ))}
-            {bands.flatMap(b => b.bands.map(d => (
+            {panelBands.flatMap(b => b.bands.map(d => (
               <rect
                 key={`${b.id}-${d.dayStart}`}
                 x={xOf(d.dayStart)} width={Math.max(0, xOf(d.dayEnd) - xOf(d.dayStart))}
-                y={splitTemp.yOf(d.max)} height={Math.max(0, splitTemp.yOf(d.min) - splitTemp.yOf(d.max))}
+                y={scale.yOf(d.max)} height={Math.max(0, scale.yOf(d.min) - scale.yOf(d.max))}
                 fill={b.color} fillOpacity="0.14"
               />
             )))}
-            {tempLines.map(line => renderLine(line, splitTemp.yOf))}
-            {splitTemp.ticks.map(v => (
-              <text key={`tl-${v}`} x={SPLIT_X0 - 6} y={splitTemp.yOf(v) + 3.5} fill="#BA7517" fontSize="10" textAnchor="end">{v.toFixed(1)}°</text>
+            {panelLines.map(line => renderLine(line, scale.yOf))}
+            {scale.ticks.map(v => (
+              <text key={`tl-${v}`} x={SPLIT_X0 - 6} y={scale.yOf(v) + 3.5} fill={tickColor} fontSize="10" textAnchor="end">{formatTick(v)}</text>
             ))}
             {hoverX != null && (
-              <line x1={hoverX} y1={SPLIT_TOP_Y0} x2={hoverX} y2={SPLIT_TOP_Y1} stroke="#1A1714" strokeOpacity="0.15" strokeWidth="1" style={{ pointerEvents: 'none' }} />
+              <line x1={hoverX} y1={y0} x2={hoverX} y2={y1} stroke="#1A1714" strokeOpacity="0.15" strokeWidth="1" style={{ pointerEvents: 'none' }} />
             )}
           </>
         ) : (
-          <text x={W / 2} y={SPLIT_TOP_H / 2} fill="#B5B0A8" fontSize="13" textAnchor="middle">Aucune courbe de température active</text>
+          <text x={W / 2} y={height / 2} fill="#B5B0A8" fontSize="13" textAnchor="middle">{emptyLabel}</text>
         )}
+        {showXLabels && xTicks.map(t => (
+          <text key={`xl-${t.time}`} x={t.x} y={height - 8} fill="#B5B0A8" fontSize="10" textAnchor="middle">{t.label}</text>
+        ))}
       </svg>
+    )
+  }
+
+  return (
+    <div>
+      {renderSplitPanel({
+        height: SPLIT_TOP_H, y0: SPLIT_TOP_Y0, y1: SPLIT_TOP_Y1, scale: splitTemp,
+        panelLines: tempLines, panelBands: bands, tickColor: '#BA7517', formatTick: v => `${v.toFixed(1)}°`,
+        emptyLabel: 'Aucune courbe de température active', showXLabels: false,
+      })}
 
       <div style={{ borderTop: '1px solid rgba(0,0,0,.06)', margin: '8px 0' }} />
 
-      <svg viewBox={`0 0 ${W} ${SPLIT_BOTTOM_H}`} style={{ width: '100%', height: SPLIT_BOTTOM_H, touchAction: 'none', display: 'block' }} {...eventHandlers}>
-        {splitHum.yOf ? (
-          <>
-            {splitHum.ticks.map(v => (
-              <line key={`grid-${v}`} x1={SPLIT_X0} y1={splitHum.yOf(v)} x2={SPLIT_X1} y2={splitHum.yOf(v)} stroke="rgba(0,0,0,0.06)" strokeWidth="0.5" />
-            ))}
-            {xTicks.map(t => (
-              <line key={`vgrid-${t.time}`} x1={t.x} y1={SPLIT_BOTTOM_Y0} x2={t.x} y2={SPLIT_BOTTOM_Y1} stroke="rgba(0,0,0,0.04)" strokeWidth="0.5" strokeDasharray="2 4" />
-            ))}
-            {humLines.map(line => renderLine(line, splitHum.yOf))}
-            {splitHum.ticks.map(v => (
-              <text key={`hl-${v}`} x={SPLIT_X0 - 6} y={splitHum.yOf(v) + 3.5} fill="#1D9E75" fontSize="10" textAnchor="end">{Math.round(v)}%</text>
-            ))}
-            {hoverX != null && (
-              <line x1={hoverX} y1={SPLIT_BOTTOM_Y0} x2={hoverX} y2={SPLIT_BOTTOM_Y1} stroke="#1A1714" strokeOpacity="0.15" strokeWidth="1" style={{ pointerEvents: 'none' }} />
-            )}
-          </>
-        ) : (
-          <text x={W / 2} y={SPLIT_BOTTOM_H / 2} fill="#B5B0A8" fontSize="13" textAnchor="middle">Aucune courbe d'humidité active</text>
-        )}
-        {xTicks.map(t => (
-          <text key={`xl-${t.time}`} x={t.x} y={SPLIT_BOTTOM_H - 8} fill="#B5B0A8" fontSize="10" textAnchor="middle">{t.label}</text>
-        ))}
-      </svg>
+      {renderSplitPanel({
+        height: SPLIT_BOTTOM_H, y0: SPLIT_BOTTOM_Y0, y1: SPLIT_BOTTOM_Y1, scale: splitHum,
+        panelLines: humLines, panelBands: [], tickColor: '#1D9E75', formatTick: v => `${Math.round(v)}%`,
+        emptyLabel: "Aucune courbe d'humidité active", showXLabels: true,
+      })}
     </div>
   )
 }
