@@ -28,6 +28,19 @@ Légende : 🔲 À faire · 🔄 En cours · ✅ Livré · ⚠️ Dette techniqu
 
 ## Changelog
 
+### 2026-08-23 — Fix #26 : ligne de repérage désalignée en mode Séparé (Vue Analyse)
+
+- **`AnalyseChart.jsx`** : correction du calcul de position du curseur (`getSvgX`).
+  Les `<svg>` du graphique ont une largeur fluide (`width: 100%`) mais une hauteur
+  fixe en pixels ; dès que la carte dépasse la largeur du `viewBox` (900), le
+  `preserveAspectRatio` par défaut (`xMidYMid meet`) rend le contenu à l'échelle 1
+  et le centre horizontalement. La règle de trois sur `getBoundingClientRect()`
+  ignorait ce letterboxing, d'où un décalage entre le curseur réel et la ligne de
+  repérage. Le calcul passe désormais par `getScreenCTM()`, exact quels que soient
+  le scaling et le `preserveAspectRatio`.
+- Le mode Combiné était affecté par le même défaut (même géométrie, décalage
+  proportionnel à la largeur de fenêtre) : le correctif couvre les deux modes.
+
 ### 2026-07-04 — LOT 5 : bouton "Combiné / Séparé" pour les axes température/humidité (issue #24)
 
 - `AnalyseChart.jsx` : `LineChart` rend soit le graphique combiné à double axe
