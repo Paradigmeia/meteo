@@ -76,14 +76,28 @@ function LineChart({ lines, bands, splitAxes, onHover }) {
     return best
   }
 
+  // Convertit la position du pointeur en abscisse dans le repère du viewBox.
+  // Une règle de trois sur getBoundingClientRect() serait fausse : les <svg> ont
+  // une largeur fluide mais une hauteur fixe en px, donc dès que la carte dépasse
+  // W (900) le preserveAspectRatio par défaut ("xMidYMid meet") dessine le contenu
+  // à l'échelle 1 et le centre horizontalement (issue #26). getScreenCTM() intègre
+  // cette transformation. Renvoie null si elle est indisponible — svg non rendu, ou
+  // environnement sans getScreenCTM/DOMPoint (jsdom) : mieux vaut ne pas déplacer le
+  // curseur que le poser au mauvais endroit.
   function getSvgX(e) {
-    const rect = e.currentTarget.getBoundingClientRect()
-    const clientX = e.touches ? e.touches[0].clientX : e.clientX
-    return Math.max(curX0, Math.min(curX1, ((clientX - rect.left) / rect.width) * W))
+    const touch = e.touches ? e.touches[0] : null
+    if (e.touches && !touch) return null
+    const ctm = typeof DOMPoint === 'undefined' ? null : e.currentTarget.getScreenCTM?.()
+    if (!ctm) return null
+    const client = new DOMPoint(touch ? touch.clientX : e.clientX, touch ? touch.clientY : e.clientY)
+    const x = client.matrixTransform(ctm.inverse()).x
+    if (!Number.isFinite(x)) return null
+    return Math.max(curX0, Math.min(curX1, x))
   }
 
   function updateHover(e) {
     const svgX = getSvgX(e)
+    if (svgX === null) return
     const t = invXOf(svgX)
     setHoverX(svgX)
     const values = lines
