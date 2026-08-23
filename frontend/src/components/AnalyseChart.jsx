@@ -77,30 +77,27 @@ function LineChart({ lines, bands, splitAxes, onHover }) {
   }
 
   // Convertit la position du pointeur en abscisse dans le repère du viewBox.
-  // On passe par getScreenCTM() plutôt que par une règle de trois sur
-  // getBoundingClientRect() : les <svg> ont une largeur fluide mais une hauteur
-  // fixe en px, donc dès que la carte dépasse W (900) le preserveAspectRatio
-  // par défaut ("xMidYMid meet") dessine le contenu à l'échelle 1 et le centre
-  // horizontalement. La règle de trois ignorait ce letterboxing et décalait la
-  // ligne de repérage par rapport au curseur réel (issue #26).
+  // Une règle de trois sur getBoundingClientRect() serait fausse : les <svg> ont
+  // une largeur fluide mais une hauteur fixe en px, donc dès que la carte dépasse
+  // W (900) le preserveAspectRatio par défaut ("xMidYMid meet") dessine le contenu
+  // à l'échelle 1 et le centre horizontalement (issue #26). getScreenCTM() intègre
+  // cette transformation. Renvoie null si elle est indisponible — svg non rendu, ou
+  // environnement sans getScreenCTM/DOMPoint (jsdom) : mieux vaut ne pas déplacer le
+  // curseur que le poser au mauvais endroit.
   function getSvgX(e) {
-    const svg = e.currentTarget
     const touch = e.touches ? e.touches[0] : null
-    const clientX = touch ? touch.clientX : e.clientX
-    const clientY = touch ? touch.clientY : e.clientY
-    const ctm = svg.getScreenCTM()
-    let x
-    if (ctm) {
-      x = new DOMPoint(clientX, clientY).matrixTransform(ctm.inverse()).x
-    } else {
-      const rect = svg.getBoundingClientRect()
-      x = ((clientX - rect.left) / rect.width) * W
-    }
+    if (e.touches && !touch) return null
+    const ctm = typeof DOMPoint === 'undefined' ? null : e.currentTarget.getScreenCTM?.()
+    if (!ctm) return null
+    const client = new DOMPoint(touch ? touch.clientX : e.clientX, touch ? touch.clientY : e.clientY)
+    const x = client.matrixTransform(ctm.inverse()).x
+    if (!Number.isFinite(x)) return null
     return Math.max(curX0, Math.min(curX1, x))
   }
 
   function updateHover(e) {
     const svgX = getSvgX(e)
+    if (svgX === null) return
     const t = invXOf(svgX)
     setHoverX(svgX)
     const values = lines
