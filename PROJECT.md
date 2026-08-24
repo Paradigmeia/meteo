@@ -28,6 +28,25 @@ Légende : 🔲 À faire · 🔄 En cours · ✅ Livré · ⚠️ Dette techniqu
 
 ## Changelog
 
+### 2026-08-24 — Issue #28 : suppression des indices de confort (Vue Analyse)
+
+- **`AnalyseView.jsx`** : section sidebar « Indices de confort » retirée (Heat
+  Index, point de rosée, écart ΔT) — fonctionnalité jugée inutilisée à l'usage.
+  État `heatIndex`/`dewPoint`/`deltaT`, blocs `comfortLines` et `deltaTLines`,
+  et les variables `interiorSlugs`/`exteriorSlugs` qui n'existaient que pour
+  alimenter le second, supprimés ; imports nettoyés
+- **`analyseUtils.js`** : fonctions `heatIndexC`, `dewPointC`, `computeDeltaT` et
+  constantes `DELTA_T_COLOR`, `HEAT_INDEX_DASH`, `DEW_POINT_DASH` supprimées
+- Les préférences déjà écrites en localStorage contenant encore
+  `heatIndex`/`dewPoint`/`deltaT` sont simplement ignorées à la lecture, puis
+  purgées à la première sauvegarde (l'objet est réécrit en entier). Vérifié par
+  rendu avec ces clés orphelines présentes et à `true`, dans les trois modes
+- Bundle : 230,5 kB → 228,0 kB
+- SPEC.md v1.4 → v1.5 : §4.6, ligne des indices de confort retirée
+- PLAN.md v1.4 → v1.5 : note sous la décision 10, dont la partie Heat Index /
+  point de rosée ne s'applique plus (le choix de calcul frontend reste valable
+  pour les moyennes glissantes)
+
 ### 2026-08-24 — LOT 5 livré
 
 Vue Analyse desktop complète. Le LOT a été ouvert par l'issue #19 puis affiné
@@ -45,11 +64,10 @@ L'issue #31 (dette du letterboxing SVG) est close sans travail dédié : sa caus
 a été supprimée par #32, cf. PLAN.md décision 12.
 
 Le LOT est déclaré livré au sens où tout son périmètre initial est en
-production et validé. Une issue ouverte porte encore la mention « LOT 5 » :
-**#28 — suppression des indices de confort** (Heat Index, point de rosée, ΔT).
-Ce n'est pas du périmètre inachevé mais une réduction de périmètre décidée à
-l'usage : les trois indices sont livrés et fonctionnels, simplement inutilisés.
-À traiter comme une évolution post-livraison.
+production et validé. Une réduction de périmètre a suivi la livraison :
+**#28 — suppression des indices de confort** (Heat Index, point de rosée, ΔT),
+livrés et fonctionnels mais inutilisés à l'usage, retirés par la PR #41 (cf.
+l'entrée de changelog du même jour).
 
 Restent aussi ouvertes, hors LOT et sans urgence : #30 (refactor — extraire la
 géométrie curseur→viewBox dans `chartUtils.js` et la partager avec

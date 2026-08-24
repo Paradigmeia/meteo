@@ -2,10 +2,12 @@ import { useState, useEffect } from 'react'
 
 const API = import.meta.env.VITE_API_URL ?? ''
 
-// Récupère les relevés bruts de plusieurs sondes en une fois (toutes les sondes
-// actives, indépendamment des cases cochées) — plusieurs indicateurs dérivés
-// (écart int/ext, indices de confort) combinent les données de plusieurs sondes
-// même quand seule une partie est affichée (cf. PLAN.md décision 10).
+// Récupère en une fois les relevés bruts de toutes les sondes actives,
+// indépendamment des cases cochées. Ce n'est pas un oubli : `key` sert de
+// dépendance à l'effet ci-dessous, et la faire dépendre des cases relancerait un
+// chargement complet à chaque coche — timer de rafraîchissement 30s remis à zéro
+// et clignotement des courbes déjà affichées. Le surcoût est marginal,
+// /api/sondes ne renvoyant que les sondes actives (cf. PLAN.md décision 9).
 export function useAnalyseReleves(slugs, period, customRange) {
   const [data, setData] = useState({})
   const key = slugs.join(',')

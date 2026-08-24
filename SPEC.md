@@ -1,6 +1,6 @@
 # SPEC.md — maison-temp
 
-**Version** : 1.4
+**Version** : 1.5
 **Date** : 2026-08-24
 **Objectif principal** : Suivre en temps réel et en historique les températures et taux d'humidité de la maison (intérieur + extérieur) via un dashboard web responsive accessible en ligne.
 
@@ -184,8 +184,6 @@ hauteur fluide — cf. plus bas) toute combinaison de :
 - Température Open-Meteo Ascain (comparaison modèle vs sonde réelle)
 - Moyennes glissantes 1h et 6h
 - Bande min/max journalière
-- Indices de confort : chaleur ressentie (Heat Index, si T > 27°C et H > 40%),
-  point de rosée (Td = T - ((100 - H) / 5)), écart intérieur/extérieur (ΔT)
 - Histogramme de distribution (mode exclusif, tranches 0.5°C)
 - Scatter temp/humidité (mode exclusif, nuage de points)
 
@@ -201,9 +199,8 @@ de cette vue.
 Une section "Type de mesure" de la barre latérale filtre les courbes par axe :
 deux cases "Température" et "Humidité", cochées par défaut toutes les deux.
 Décocher un type masque toutes les courbes de cet axe, toutes catégories
-confondues (mesures brutes, moyennes glissantes, indices de confort, ΔT,
-Open-Meteo, et bande min/max qui est intrinsèquement une donnée de
-température). En mode combiné le graphique devient alors mono-axe ; en mode
+confondues (mesures brutes, moyennes glissantes, Open-Meteo, et bande min/max
+qui est intrinsèquement une donnée de température). En mode combiné le graphique devient alors mono-axe ; en mode
 séparé le panneau correspondant disparaît entièrement. Le filtre est propre au
 mode ligne : il est masqué en histogramme et en nuage de points, dont la
 sémantique ne dépend pas de ce choix. Préférence persistée en localStorage.

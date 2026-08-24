@@ -15,11 +15,8 @@ export const TEMP_AXIS_COLOR = '#BA7517'
 export const HUM_AXIS_COLOR = '#1D9E75'
 
 export const METEO_COLOR = '#EF9F27'
-export const DELTA_T_COLOR = '#6B6560'
 export const AVG_1H_DASH = '1 3'
 export const AVG_6H_DASH = '8 4'
-export const HEAT_INDEX_DASH = '1 4'
-export const DEW_POINT_DASH = '3 1 1 1'
 
 export const PERIOD_HOURS = { '12h': 12, '24h': 24, '7d': 168, '30d': 720, '90d': 2160, '1an': 8760 }
 
@@ -73,44 +70,6 @@ export function dailyMinMaxBand(releves) {
   return [...days.values()]
     .sort((a, b) => a.dayStart - b.dayStart)
     .map(e => ({ dayStart: e.dayStart, dayEnd: e.dayStart + 24 * 3600 * 1000, min: e.min, max: e.max }))
-}
-
-// Chaleur ressentie (régression de Rothfusz, NWS) — formule non fournie dans la spec
-// (seul le point de rosée a une formule explicite), on utilise la référence standard.
-export function heatIndexC(tempC, rh) {
-  if (tempC == null || rh == null || tempC <= 27 || rh <= 40) return null
-  const T = tempC * 9 / 5 + 32
-  const hiF = -42.379 + 2.04901523 * T + 10.14333127 * rh - 0.22475541 * T * rh
-    - 0.00683783 * T * T - 0.05481717 * rh * rh + 0.00122874 * T * T * rh
-    + 0.00085282 * T * rh * rh - 0.00000199 * T * T * rh * rh
-  return (hiF - 32) * 5 / 9
-}
-
-// Point de rosée — formule simplifiée explicitement fournie dans SPEC.md §4.6.
-export function dewPointC(tempC, rh) {
-  if (tempC == null || rh == null) return null
-  return tempC - ((100 - rh) / 5)
-}
-
-// Écart intérieur/extérieur : pour chaque relevé extérieur, cherche le relevé
-// intérieur le plus proche dans le temps. Pas de valeur (gap) si aucun relevé
-// intérieur dans la tolérance (30 min par défaut, cf. test plan issue #19).
-export function computeDeltaT(interiorReleves, exteriorReleves, toleranceMs = 30 * 60 * 1000) {
-  const ext = exteriorReleves.filter(r => r.temperature != null).map(r => ({ t: new Date(r.recu_le).getTime(), v: r.temperature }))
-  const intr = interiorReleves.filter(r => r.temperature != null).map(r => ({ t: new Date(r.recu_le).getTime(), v: r.temperature }))
-  if (!ext.length || !intr.length) return []
-  const result = []
-  for (const e of ext) {
-    let best = null, bestDist = Infinity
-    for (const i of intr) {
-      const d = Math.abs(i.t - e.t)
-      if (d < bestDist) { bestDist = d; best = i }
-    }
-    if (best && bestDist <= toleranceMs) {
-      result.push({ recu_le: new Date(e.t).toISOString(), delta: best.v - e.v })
-    }
-  }
-  return result
 }
 
 export function histogramBins(values, binSize = 0.5, domain = null) {
