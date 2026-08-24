@@ -16,7 +16,7 @@ from config import API_KEY
 from database import init_db, get_db
 from models import (
     ReleverPayload, SondeOut, DernierReleve, ReleverOut,
-    TEMP_MIN, TEMP_MAX, HUM_MIN, HUM_MAX,
+    TEMP_MIN, TEMP_MAX, HUM_ACCEPT_MIN, HUM_ACCEPT_MAX, clamp_humidity,
 )
 
 METEO_URL = (
@@ -68,15 +68,20 @@ app.add_middleware(
 )
 
 
-def _json_safe(value):
-    """Remplace récursivement les flottants non finis par leur écriture texte."""
+def _walk_non_finite(value, replace):
+    """Parcourt une structure JSON et remplace les flottants non finis."""
     if isinstance(value, float) and not math.isfinite(value):
-        return repr(value)
+        return replace(value)
     if isinstance(value, dict):
-        return {k: _json_safe(v) for k, v in value.items()}
+        return {k: _walk_non_finite(v, replace) for k, v in value.items()}
     if isinstance(value, (list, tuple)):
-        return [_json_safe(v) for v in value]
+        return [_walk_non_finite(v, replace) for v in value]
     return value
+
+
+def _json_safe(value):
+    """Rend une structure sérialisable en conservant la trace du non-fini."""
+    return _walk_non_finite(value, repr)
 
 
 @app.exception_handler(RequestValidationError)
@@ -155,7 +160,9 @@ async def get_releve(slug: str, key: str, temp: str | None = None, hum: str | No
     if not API_KEY or not secrets.compare_digest(key, API_KEY):
         raise HTTPException(status_code=401, detail="Clé API invalide")
     temp_val = _parse_shelly_value(temp, TEMP_MIN, TEMP_MAX, "Température")
-    hum_val = _parse_shelly_value(hum, HUM_MIN, HUM_MAX, "Humidité")
+    hum_val = clamp_humidity(
+        _parse_shelly_value(hum, HUM_ACCEPT_MIN, HUM_ACCEPT_MAX, "Humidité")
+    )
     if temp_val is None and hum_val is None:
         raise HTTPException(status_code=422, detail="Au moins temp ou hum est requis")
     async with get_db() as db:
@@ -344,7 +351,11 @@ async def get_meteo():
             async with httpx.AsyncClient(timeout=10) as client:
                 resp = await client.get(METEO_URL)
                 resp.raise_for_status()
-            _meteo_cache["data"] = resp.json()
+            # json.loads accepte les littéraux NaN/Infinity : une réponse amont
+            # empoisonnée serait mise en cache puis renverrait 500 à la
+            # sérialisation, pendant les 30 minutes de validité du cache. On
+            # neutralise avant de cacher, en valeur absente (issue #36).
+            _meteo_cache["data"] = _walk_non_finite(resp.json(), lambda _: None)
             _meteo_cache["expires_at"] = now + timedelta(minutes=30)
         except Exception:
             if _meteo_cache["data"]:

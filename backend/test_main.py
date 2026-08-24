@@ -15,7 +15,15 @@ _tmpdir = tempfile.TemporaryDirectory()
 config.DATABASE_PATH = os.path.join(_tmpdir.name, "test.db")
 
 from main import _finite_or_none, _parse_shelly_value, app
-from models import HUM_MAX, HUM_MIN, TEMP_MAX, TEMP_MIN
+from models import (
+    HUM_ACCEPT_MAX,
+    HUM_ACCEPT_MIN,
+    HUM_MAX,
+    HUM_MIN,
+    TEMP_MAX,
+    TEMP_MIN,
+    clamp_humidity,
+)
 
 
 def _parse_temp(value):
@@ -92,14 +100,52 @@ def test_parse_shelly_value_bounds_are_inclusive():
     assert _parse_temp(str(TEMP_MAX)) == TEMP_MAX
 
 
-def test_parse_shelly_value_humidity_bounds():
-    assert _parse_shelly_value("96.7", HUM_MIN, HUM_MAX, "Humidité") == 96.7
+def _parse_hum(value):
+    return _parse_shelly_value(value, HUM_ACCEPT_MIN, HUM_ACCEPT_MAX, "Humidité")
+
+
+def test_parse_shelly_value_humidity_in_range():
+    assert _parse_hum("96.7") == 96.7
+
+
+def test_parse_shelly_value_humidity_beyond_tolerance_rejected():
     from fastapi import HTTPException
 
-    with pytest.raises(HTTPException):
-        _parse_shelly_value("-0.1", HUM_MIN, HUM_MAX, "Humidité")
-    with pytest.raises(HTTPException):
-        _parse_shelly_value("100.1", HUM_MIN, HUM_MAX, "Humidité")
+    with pytest.raises(HTTPException) as exc:
+        _parse_hum("120")
+    assert exc.value.status_code == 422
+
+
+def test_clamp_humidity():
+    """Dans la marge, on écrête au lieu de rejeter : un rejet perdrait le relevé,
+    le Shelly n'émettant qu'une fois."""
+    assert clamp_humidity(None) is None
+    assert clamp_humidity(58.2) == 58.2
+    assert clamp_humidity(100.2) == 100.0   # condensation
+    assert clamp_humidity(-0.3) == 0.0
+    assert clamp_humidity(HUM_MAX) == HUM_MAX
+    assert clamp_humidity(HUM_MIN) == HUM_MIN
+
+
+def test_releve_humidity_slightly_over_100_is_clamped_not_lost(client):
+    resp = client.get(
+        "/api/releve/salon",
+        params={"hum": "100.2", "key": "test-key"},
+    )
+    assert resp.status_code == 200
+    _, hum = _last_salon_row()
+    assert hum == 100.0, "le relevé doit être conservé, écrêté"
+
+
+def test_post_releve_humidity_clamped(client):
+    resp = client.post(
+        "/api/releve/salon",
+        json={"temp": 21.0, "hum": 103.0},
+        headers={"X-API-Key": "test-key"},
+    )
+    assert resp.status_code == 200
+    _, hum = _last_salon_row()
+    assert hum == 100.0
 
 
 def test_releve_non_finite_rejected_by_endpoint(client):
@@ -132,9 +178,20 @@ def test_post_releve_non_finite_rejected(client, body):
 
 
 def test_post_releve_out_of_range_rejected(client):
+    """150 % dépasse la marge d'écrêtage : c'est une aberration, pas une
+    imprécision de mesure."""
     resp = client.post(
         "/api/releve/salon",
         json={"temp": 20.0, "hum": 150.0},
+        headers={"X-API-Key": "test-key"},
+    )
+    assert resp.status_code == 422
+
+
+def test_post_releve_temperature_out_of_range_rejected(client):
+    resp = client.post(
+        "/api/releve/salon",
+        json={"temp": 150.0},
         headers={"X-API-Key": "test-key"},
     )
     assert resp.status_code == 422
@@ -274,45 +331,114 @@ def test_sqlite_stores_nan_as_null_but_roundtrips_inf():
     conn.close()
 
 
-def test_releves_raw_survives_infinite_row(client):
-    _insert_releve("salon", 21.0, 55.0, "2026-02-10T08:00:00+00:00")
-    _insert_releve("salon", float("inf"), None, "2026-02-10T09:00:00+00:00")
+# Chaque cas est joué sur les DEUX grandeurs : les garde-fous température et
+# humidité sont trois appels distincts chacun, et une première version de ces
+# tests n'insérait un inf qu'en température — on pouvait retirer les trois appels
+# côté humidité sans qu'un seul test ne tombe.
+GRANDEURS = [
+    pytest.param("temperature", id="temp"),
+    pytest.param("humidite", id="hum"),
+]
+
+
+def _poison(slug, grandeur, recu_le, sain=None, valeur_saine=None):
+    """Insère une ligne non finie sur `grandeur`, et éventuellement une ligne saine."""
+    if sain is not None:
+        _insert_releve(
+            slug,
+            valeur_saine if grandeur == "temperature" else None,
+            valeur_saine if grandeur == "humidite" else None,
+            sain,
+        )
+    _insert_releve(
+        slug,
+        float("inf") if grandeur == "temperature" else None,
+        float("inf") if grandeur == "humidite" else None,
+        recu_le,
+    )
+
+
+@pytest.mark.parametrize("grandeur", GRANDEURS)
+def test_releves_raw_survives_infinite_row(client, grandeur):
+    day = {"temperature": "2026-02-10", "humidite": "2026-02-11"}[grandeur]
+    _poison("salon", grandeur, f"{day}T09:00:00+00:00", sain=f"{day}T08:00:00+00:00", valeur_saine=21.0)
     resp = client.get(
         "/api/releves/salon",
-        params={"from": "2026-02-10T00:00:00.000Z", "to": "2026-02-10T23:00:00.000Z"},
+        params={"from": f"{day}T00:00:00.000Z", "to": f"{day}T23:00:00.000Z"},
     )
     # Sans le garde-fou : 500, et la plage entière disparaît du graphique.
     assert resp.status_code == 200
     data = resp.json()
-    assert any(r["temperature"] == 21.0 for r in data), "le relevé sain doit rester lisible"
-    assert all(r["temperature"] != float("inf") for r in data)
-    assert any(r["temperature"] is None for r in data), "la ligne fautive devient une mesure absente"
+    valeurs = [r[grandeur] for r in data]
+    assert 21.0 in valeurs, "le relevé sain doit rester lisible"
+    assert all(v != float("inf") for v in valeurs)
+    assert any(v is None for v in valeurs), "la ligne fautive devient une mesure absente"
 
 
-def test_releves_aggregated_survives_infinite_row(client):
-    _insert_releve("salon", 20.0, None, "2026-02-12T08:00:00+00:00")
-    _insert_releve("salon", float("inf"), None, "2026-02-12T08:30:00+00:00")
+@pytest.mark.parametrize("grandeur", GRANDEURS)
+def test_releves_aggregated_survives_infinite_row(client, grandeur):
+    day = {"temperature": "2026-02-12", "humidite": "2026-02-20"}[grandeur]
+    end = {"temperature": "2026-02-19", "humidite": "2026-02-27"}[grandeur]
+    _poison("salon", grandeur, f"{day}T08:30:00+00:00", sain=f"{day}T08:00:00+00:00", valeur_saine=20.0)
     resp = client.get(
         "/api/releves/salon",
-        params={"from": "2026-02-12T00:00:00.000Z", "to": "2026-02-19T00:00:00.000Z"},
+        params={"from": f"{day}T00:00:00.000Z", "to": f"{end}T00:00:00.000Z"},
     )
     assert resp.status_code == 200
-    temps = [r["temperature"] for r in resp.json() if r["temperature"] is not None]
-    assert temps, "le bucket doit rester exploitable"
+    valeurs = [r[grandeur] for r in resp.json() if r[grandeur] is not None]
+    assert valeurs, "le bucket doit rester exploitable"
     # inf contaminerait la moyenne du bucket entier, pas seulement sa propre ligne.
-    assert all(t == t and abs(t) < 1e30 for t in temps)
-    assert 20.0 in temps
+    assert all(v == v and abs(v) < 1e30 for v in valeurs)
+    assert 20.0 in valeurs
 
 
-def test_sondes_survives_infinite_last_reading(client):
-    # chambre-jade est active dans le seed et n'est utilisée par aucun autre test :
-    # la ligne insérée est donc bien son dernier relevé.
-    _insert_releve("chambre-jade", float("inf"), None, "2026-02-14T10:00:00+00:00")
+@pytest.mark.parametrize("grandeur", GRANDEURS)
+def test_sondes_survives_infinite_last_reading(client, grandeur):
+    # chambre-parents et chambre-jade sont actives dans le seed et ne servent à
+    # aucun autre test : la ligne insérée est bien leur dernier relevé.
+    slug = {"temperature": "chambre-jade", "humidite": "chambre-parents"}[grandeur]
+    _poison(slug, grandeur, "2026-02-14T10:00:00+00:00")
     resp = client.get("/api/sondes")
     # Sans le garde-fou : 500 sur /api/sondes, donc dashboard entièrement vide —
     # portée plus large que la seule Vue Analyse.
     assert resp.status_code == 200
-    jade = next(s for s in resp.json() if s["slug"] == "chambre-jade")
-    assert jade["dernier_releve"] is not None
-    assert jade["dernier_releve"]["temperature"] is None
-    assert jade["dernier_releve"]["recu_le"] is not None
+    sonde = next(s for s in resp.json() if s["slug"] == slug)
+    assert sonde["dernier_releve"] is not None
+    assert sonde["dernier_releve"][grandeur] is None
+    assert sonde["dernier_releve"]["recu_le"] is not None
+
+
+def test_meteo_non_finite_upstream_is_neutralised(client, monkeypatch):
+    """json.loads accepte les littéraux NaN/Infinity : une réponse amont
+    empoisonnée serait mise en cache puis renverrait 500 pendant 30 minutes."""
+    import main
+
+    class _FakeResponse:
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {"current": {"temperature_2m": float("inf")}, "hourly": {"temperature_2m": [1.0, float("nan")]}}
+
+    class _FakeClient:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def get(self, url):
+            return _FakeResponse()
+
+    monkeypatch.setattr(main.httpx, "AsyncClient", lambda **kw: _FakeClient())
+    main._meteo_cache["data"] = None
+    main._meteo_cache["expires_at"] = None
+    try:
+        resp = client.get("/api/meteo")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["current"]["temperature_2m"] is None
+        assert body["hourly"]["temperature_2m"] == [1.0, None]
+    finally:
+        main._meteo_cache["data"] = None
+        main._meteo_cache["expires_at"] = None

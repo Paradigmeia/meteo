@@ -26,7 +26,8 @@ export function useAnalyseReleves(slugs, period, customRange) {
       return `period=${period}`
     }
 
-    async function load() {
+    // `first` distingue le chargement initial d'une plage d'un rafraîchissement.
+    async function load(first) {
       const qs = buildQuery()
       // `null` = la requête de cette sonde a échoué, `[]` = elle a réussi et il
       // n'y a pas de relevé sur la plage. Confondre les deux faisait disparaître
@@ -41,14 +42,23 @@ export function useAnalyseReleves(slugs, period, customRange) {
         )
       )
       if (!cancelled) {
-        const next = {}
-        currentSlugs.forEach((slug, i) => { next[slug] = results[i] ?? [] })
-        setData(next)
+        setData(prev => {
+          const next = {}
+          currentSlugs.forEach((slug, i) => {
+            // Sur un rafraîchissement, un échec conserve la dernière donnée
+            // bonne : c'est ce qu'annonce le bandeau (« affichage incomplet »),
+            // et c'est déjà ce que font useSondes et useReleves. Au premier
+            // chargement d'une plage en revanche, il faut vider — garder les
+            // relevés de la plage précédente les dessinerait sur le mauvais axe.
+            next[slug] = results[i] ?? (first ? [] : prev[slug] ?? [])
+          })
+          return next
+        })
         setFailed(results.some(r => r === null))
       }
-      if (!cancelled) timer = setTimeout(load, 30_000)
+      if (!cancelled) timer = setTimeout(() => load(false), 30_000)
     }
-    load()
+    load(true)
     return () => {
       cancelled = true
       clearTimeout(timer)

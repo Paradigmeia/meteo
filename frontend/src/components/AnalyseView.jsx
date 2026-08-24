@@ -351,8 +351,8 @@ export default function AnalyseView({ sondes, meteo, onBack }) {
           {relevesFailed && (
             <div className="analyse-error" role="status">
               <i className="ti ti-alert-triangle" />
-              Certaines données n'ont pas pu être chargées — l'affichage peut être
-              incomplet. Nouvelle tentative automatique dans quelques secondes.
+              Certaines données n'ont pas pu être chargées — l'affichage peut
+              dater. Nouvelle tentative automatique toutes les 30 secondes.
             </div>
           )}
 

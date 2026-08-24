@@ -261,10 +261,18 @@ Ce que la maquette montre et que le code doit reproduire :
   non finie, `json.dumps` lève et le client reçoit un 500 opaque — la validation
   faisait son travail, c'est son compte rendu qui cassait. Un gestionnaire dédié
   remplace les non-finis par leur écriture texte
-- **Trade-off** : Une ligne non finie déjà en base devient un trou dans la courbe
-  sans être signalée. C'est le même traitement qu'un relevé qui ne porte pas la
-  grandeur, et le cas est désormais impossible à créer. Vérifié sur la base de
-  production : 0 ligne non finie sur 7478 au moment du correctif
+- **Trade-off** : Une ligne non finie déjà en base devient une mesure absente
+  sans être signalée — un point parmi des centaines sur `/api/releves`, mais la
+  valeur courante de la sonde sur `/api/sondes`, jusqu'au prochain relevé sain.
+  C'est le même traitement qu'un relevé qui ne porte pas la grandeur, et le cas
+  est désormais impossible à créer. Vérifié sur la base de production : 0 ligne
+  non finie sur 7478 au moment du correctif
+- **Humidité écrêtée, température rejetée** : traitement volontairement
+  dissymétrique. Le Shelly n'émet qu'une fois et ne réémet pas sur erreur, donc
+  un 422 perd le relevé définitivement. Une humidité à 100,2 % est une
+  imprécision de capteur en condensation, pas une aberration : on l'écrête dans
+  une marge de 5 points. Les bornes de température (-100..100 °C) sont si larges
+  qu'un dépassement ne peut pas être une imprécision — le rejet reste correct
 - **Note SQLite** : SQLite n'a pas de représentation pour `NaN` et le stocke en
   `NULL` — un `NaN` se traduisait donc par une mesure perdue, pas par une ligne
   empoisonnée. C'est `±inf` qui fait l'aller-retour intact et constituait le vrai
