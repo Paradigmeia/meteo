@@ -9,6 +9,11 @@ export function sondeColor(slug) {
   return SONDE_COLORS[slug] ?? '#6B6560'
 }
 
+// Couleurs d'axe : température (ambre) et humidité (teal), partagées entre les
+// graduations du graphique et les puces du filtre "Type de mesure".
+export const TEMP_AXIS_COLOR = '#BA7517'
+export const HUM_AXIS_COLOR = '#1D9E75'
+
 export const METEO_COLOR = '#EF9F27'
 export const DELTA_T_COLOR = '#6B6560'
 export const AVG_1H_DASH = '1 3'

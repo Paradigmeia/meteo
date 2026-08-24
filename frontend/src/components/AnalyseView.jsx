@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import AnalyseChart from './AnalyseChart'
 import { useAnalyseReleves } from '../hooks/useAnalyseReleves'
 import {
@@ -7,6 +7,16 @@ import {
   movingAverage, dailyMinMaxBand, heatIndexC, dewPointC, computeDeltaT,
   loadAnalysePrefs, saveAnalysePrefs, rangeBoundsMs,
 } from '../utils/analyseUtils'
+
+// Dimensions fluides du graphique : le viewBox SVG reprend les dimensions
+// mesurées de la carte, qui s'étire jusqu'au bas de la fenêtre.
+// MIN_CHART_HEIGHT est la hauteur historique, conservée comme plancher pour ne
+// pas écraser le graphique sur petite fenêtre ou résolution basse ;
+// MIN_CHART_WIDTH évite que les graduations se chevauchent sur carte étroite
+// (en deçà, le SVG se remet à l'échelle et le graphique est simplement réduit).
+const CHART_BOTTOM_MARGIN = 32
+const MIN_CHART_HEIGHT = 480
+const MIN_CHART_WIDTH = 600
 
 function toIso(datetimeLocal) {
   if (!datetimeLocal) return null
@@ -32,19 +42,25 @@ export default function AnalyseView({ sondes, meteo, onBack }) {
   const [mode, setMode] = useState(() => initialPrefs.mode ?? 'line')
   const [quickCode, setQuickCode] = useState(() => initialPrefs.quickCode ?? '24h')
   const [splitAxes, setSplitAxes] = useState(() => initialPrefs.splitAxes ?? false)
+  const [showTemp, setShowTemp] = useState(() => initialPrefs.showTemp ?? true)
+  const [showHum, setShowHum] = useState(() => initialPrefs.showHum ?? true)
 
   const [useCustomRange, setUseCustomRange] = useState(false)
   const [customFrom, setCustomFrom] = useState('')
   const [customTo, setCustomTo] = useState('')
   const [hoverInfo, setHoverInfo] = useState(null)
 
+  const mainRef = useRef(null)
+  const chartCardRef = useRef(null)
+  const [chartSize, setChartSize] = useState({ width: MIN_CHART_WIDTH, height: MIN_CHART_HEIGHT })
+
   useEffect(() => {
     saveAnalysePrefs({
       checkedSondes: [...checkedSondes],
       meteoChecked, avg1h, avg6h, minMaxBand, heatIndex, dewPoint, deltaT,
-      mode, quickCode, splitAxes,
+      mode, quickCode, splitAxes, showTemp, showHum,
     })
-  }, [checkedSondes, meteoChecked, avg1h, avg6h, minMaxBand, heatIndex, dewPoint, deltaT, mode, quickCode, splitAxes])
+  }, [checkedSondes, meteoChecked, avg1h, avg6h, minMaxBand, heatIndex, dewPoint, deltaT, mode, quickCode, splitAxes, showTemp, showHum])
 
   const slugs = useMemo(() => sondes.map(s => s.slug), [sondes])
   const customRange = useCustomRange && customFrom && customTo
@@ -68,6 +84,14 @@ export default function AnalyseView({ sondes, meteo, onBack }) {
   function handleToChange(v) {
     setCustomTo(v)
     if (customFrom && v) setUseCustomRange(true)
+  }
+
+  // Le panneau de survol garde la dernière valeur survolée : on le vide en même
+  // temps que le filtre change, sinon il continuerait d'afficher des séries
+  // désormais masquées jusqu'au prochain survol.
+  function toggleMeasureType(setter, checked) {
+    setter(checked)
+    setHoverInfo(null)
   }
 
   function toggleSonde(slug) {
@@ -155,6 +179,13 @@ export default function AnalyseView({ sondes, meteo, onBack }) {
 
   const lines = [...rawLines, ...avgLines, ...comfortLines, ...deltaTLines, ...meteoLines]
 
+  // Filtre par type de mesure : masque toutes les courbes de l'axe décoché,
+  // toutes catégories confondues (brutes, moyennes glissantes, indices de
+  // confort, ΔT, Open-Meteo). La bande min/max est intrinsèquement une donnée
+  // de température, elle suit donc showTemp.
+  const visibleLines = lines.filter(l => (l.axis === 'temp' ? showTemp : showHum))
+  const visibleBands = showTemp ? bandEntries : []
+
   const distributionData = checkedList.map(s => ({
     id: s.slug, label: s.nom, color: sondeColor(s.slug),
     values: (relevesBySlug[s.slug] ?? []).filter(r => r.temperature != null).map(r => r.temperature),
@@ -171,7 +202,40 @@ export default function AnalyseView({ sondes, meteo, onBack }) {
     ? distributionData.filter(d => d.values.length).map(d => ({ id: d.id, color: d.color, label: d.label }))
     : mode === 'scatter'
       ? scatterData.filter(d => d.points.length).map(d => ({ id: d.id, color: d.color, label: d.label }))
-      : [...lines, ...bandEntries]
+      : [...visibleLines, ...visibleBands]
+
+  // Mesure la zone de dessin utile de la carte graphique : sa largeur intérieure,
+  // et l'espace vertical restant jusqu'au bas de la fenêtre. On raisonne en
+  // coordonnées document (rect.top + scrollY) pour que la mesure ne dépende pas
+  // du défilement ; changer la taille du graphique ne déplace pas le haut de la
+  // carte ni sa largeur, donc pas de boucle de rétroaction.
+  useLayoutEffect(() => {
+    function measure() {
+      const card = chartCardRef.current
+      const main = mainRef.current
+      if (!card || !main) return
+      const styles = window.getComputedStyle(card)
+      const px = prop => parseFloat(styles[prop]) || 0
+      const vInsets = px('paddingTop') + px('paddingBottom') + px('borderTopWidth') + px('borderBottomWidth')
+      const cardRect = card.getBoundingClientRect()
+      // Ce qui suit la carte dans la colonne principale (légende, marge basse)
+      // doit rester visible : on le déduit de la hauteur disponible. `.analyse-main`
+      // est un élément de grille, donc racine de contexte de formatage : la marge
+      // basse de la carte est bien comprise dans la hauteur de la colonne.
+      const trailing = Math.max(0, main.getBoundingClientRect().bottom - cardRect.bottom)
+      const available = window.innerHeight - (cardRect.top + window.scrollY)
+        - trailing - CHART_BOTTOM_MARGIN - vInsets
+      // clientWidth exclut les bordures mais pas les paddings.
+      const width = Math.max(MIN_CHART_WIDTH, Math.round(card.clientWidth - px('paddingLeft') - px('paddingRight')))
+      const height = Math.max(MIN_CHART_HEIGHT, Math.round(available))
+      setChartSize(prev => (prev.width === width && prev.height === height ? prev : { width, height }))
+    }
+    measure()
+    window.addEventListener('resize', measure)
+    return () => window.removeEventListener('resize', measure)
+    // `mode` fait apparaître/disparaître le panneau de survol et la bascule
+    // d'axes au-dessus de la carte ; la taille de la légende change ce qui suit.
+  }, [mode, legendItems.length])
 
   return (
     <div className="analyse-container">
@@ -256,9 +320,27 @@ export default function AnalyseView({ sondes, meteo, onBack }) {
               Nuage de points (temp/humidité)
             </label>
           </div>
+
+          {/* Placée en dernier : le filtre n'existe qu'en mode ligne, et le voir
+              disparaître ne doit pas décaler les cases situées au-dessus — la
+              case "Histogramme" qu'on vient de cocher resterait sinon sous le
+              curseur alors qu'une autre a pris sa place. */}
+          {mode === 'line' && (
+            <div className="analyse-group">
+              <p className="section-label">Type de mesure</p>
+              <label className="analyse-check">
+                <input type="checkbox" checked={showTemp} onChange={e => toggleMeasureType(setShowTemp, e.target.checked)} />
+                Température
+              </label>
+              <label className="analyse-check">
+                <input type="checkbox" checked={showHum} onChange={e => toggleMeasureType(setShowHum, e.target.checked)} />
+                Humidité
+              </label>
+            </div>
+          )}
         </aside>
 
-        <div className="analyse-main">
+        <div className="analyse-main" ref={mainRef}>
           <div className="analyse-range">
             <div className="periods">
               {PERIOD_OPTIONS.map(p => (
@@ -314,14 +396,18 @@ export default function AnalyseView({ sondes, meteo, onBack }) {
             </div>
           )}
 
-          <div className="chart-card">
+          <div className="chart-card" ref={chartCardRef}>
             <AnalyseChart
               mode={mode}
-              lines={lines}
-              bands={bandEntries}
+              lines={visibleLines}
+              bands={visibleBands}
               distributionData={distributionData}
               scatterData={scatterData}
               splitAxes={splitAxes}
+              showTemp={showTemp}
+              showHum={showHum}
+              width={chartSize.width}
+              height={chartSize.height}
               onHover={setHoverInfo}
             />
           </div>

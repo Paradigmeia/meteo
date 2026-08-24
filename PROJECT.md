@@ -28,6 +28,39 @@ Légende : 🔲 À faire · 🔄 En cours · ✅ Livré · ⚠️ Dette techniqu
 
 ## Changelog
 
+### 2026-08-24 — Issue #27 : filtre par type de mesure + hauteur fluide (Vue Analyse)
+
+- **`AnalyseChart.jsx`** : les constantes module `W = 900` / `H = 480`
+  disparaissent au profit de props `width`/`height` que le `viewBox` reprend
+  telles quelles ; `X1`, `Y0`/`Y1` et les libellés d'axes en dérivent, dans les
+  quatre modes (Combiné, Séparé, Histogramme, Nuage de points). L'échelle de
+  rendu du SVG vaut désormais exactement 1 : plus de bandes blanches latérales
+  sur grand écran, et plus de letterboxing vertical (qui aurait annulé une partie
+  de la hauteur gagnée) sur fenêtre étroite. En mode Séparé,
+  les deux panneaux à hauteur fixe (`SPLIT_TOP_H`/`SPLIT_BOTTOM_H = 220`) sont
+  remplacés par une liste de panneaux construite à partir de `showTemp`/`showHum` :
+  `(height - 17) / 2` chacun à deux panneaux, `height` entier avec un seul.
+  Les marges internes deviennent des constantes nommées
+  (`SPLIT_PAD_TOP`/`SPLIT_PAD_INNER`/`SPLIT_PAD_XLABELS`) au lieu d'être écrites
+  en dur dans quatre expressions. Couleurs d'axe déplacées dans `analyseUtils.js`
+  (`TEMP_AXIS_COLOR`/`HUM_AXIS_COLOR`), partagées avec les puces du nouveau filtre
+- **`AnalyseView.jsx`** : nouvelle section « Type de mesure » dans la barre
+  latérale (cases Température / Humidité, cochées par défaut, persistées sous
+  `showTemp`/`showHum`) ; `lines` et `bandEntries` sont filtrés selon ces cases
+  avant d'être passés au graphique et à la légende. Nouvel `useLayoutEffect` qui
+  mesure l'espace vertical disponible sous le haut de `.chart-card` et le passe
+  en prop `height` (plancher 480px, recalcul sur `resize`). Le panneau de survol
+  est vidé au changement de filtre pour ne pas afficher de série masquée. La
+  section « Type de mesure » est placée en dernier dans la barre latérale :
+  n'existant qu'en mode ligne, la voir disparaître ne doit pas décaler les cases
+  situées au-dessus
+- **`analyseUtils.js`** : `TEMP_AXIS_COLOR` / `HUM_AXIS_COLOR` exportés
+- Aucun changement CSS nécessaire : `.chart-card` et `.analyse-main` n'imposaient
+  déjà aucune hauteur, la carte suit la hauteur des `<svg>` qu'elle contient
+- SPEC.md v1.3 → v1.4 : §4.6 complétée (filtre par type, hauteur fluide) et
+  mention obsolète d'une hauteur de 400px corrigée
+- PLAN.md v1.3 → v1.4 : décision 12 ajoutée
+
 ### 2026-08-23 — Fix #26 : ligne de repérage désalignée en mode Séparé (Vue Analyse)
 
 - **`AnalyseChart.jsx`** : correction du calcul de position du curseur (`getSvgX`).
