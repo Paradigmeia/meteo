@@ -10,6 +10,7 @@ const API = import.meta.env.VITE_API_URL ?? ''
 // /api/sondes ne renvoyant que les sondes actives (cf. PLAN.md décision 9).
 export function useAnalyseReleves(slugs, period, customRange) {
   const [data, setData] = useState({})
+  const [failed, setFailed] = useState(false)
   const key = slugs.join(',')
 
   useEffect(() => {
@@ -26,19 +27,25 @@ export function useAnalyseReleves(slugs, period, customRange) {
     }
 
     async function load() {
-      try {
-        const qs = buildQuery()
-        const results = await Promise.all(
-          currentSlugs.map(slug =>
-            window.fetch(`${API}/api/releves/${slug}?${qs}`).then(res => (res.ok ? res.json() : []))
-          )
+      const qs = buildQuery()
+      // `null` = la requête de cette sonde a échoué, `[]` = elle a réussi et il
+      // n'y a pas de relevé sur la plage. Confondre les deux faisait disparaître
+      // le graphique sans le moindre message quand l'API renvoyait une erreur
+      // (issue #36). Chaque sonde est isolée : une seule en échec ne doit pas
+      // emporter l'affichage des autres.
+      const results = await Promise.all(
+        currentSlugs.map(slug =>
+          window.fetch(`${API}/api/releves/${slug}?${qs}`)
+            .then(res => (res.ok ? res.json() : null))
+            .catch(() => null)
         )
-        if (!cancelled) {
-          const next = {}
-          currentSlugs.forEach((slug, i) => { next[slug] = results[i] })
-          setData(next)
-        }
-      } catch {}
+      )
+      if (!cancelled) {
+        const next = {}
+        currentSlugs.forEach((slug, i) => { next[slug] = results[i] ?? [] })
+        setData(next)
+        setFailed(results.some(r => r === null))
+      }
       if (!cancelled) timer = setTimeout(load, 30_000)
     }
     load()
@@ -48,5 +55,5 @@ export function useAnalyseReleves(slugs, period, customRange) {
     }
   }, [key, period, customRange?.from, customRange?.to])
 
-  return { data }
+  return { data, failed }
 }

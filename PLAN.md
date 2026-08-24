@@ -1,8 +1,8 @@
 # PLAN.md — maison-temp
 
-**Version** : 1.5
+**Version** : 1.6
 **Date** : 2026-08-24
-**Référence** : SPEC.md v1.5
+**Référence** : SPEC.md v1.6
 
 ---
 
@@ -235,6 +235,40 @@ Ce que la maquette montre et que le code doit reproduire :
   pas repousser la légende hors de l'écran. Changer la hauteur du graphique ne
   déplaçant pas le haut de la carte, il n'y a pas de boucle de rétroaction ; un
   `ResizeObserver` sur la carte en aurait créé une
+
+### Décision 13 (2026-08-24)
+
+- **Contexte** : `temp: float` acceptait `NaN` et `±inf` (comportement Pydantic
+  par défaut), et `_parse_shelly_value` faisait un `float()` nu. Une valeur non
+  finie stockée faisait échouer la sérialisation JSON de la **réponse entière**,
+  pas seulement de la ligne fautive — donc 500 sur `/api/releves` comme sur
+  `/api/sondes`, et côté frontend un graphique ou un dashboard vide sans le
+  moindre message (issue #36)
+- **Choix** : Garde-fou des deux côtés plutôt que d'un seul.
+  (a) **À l'écriture** : bornes `allow_inf_nan=False` + `ge`/`le` sur
+  `ReleverPayload`, contrôle de finitude et de bornes dans `_parse_shelly_value`.
+  (b) **À la lecture** : `_finite_or_none` neutralise une valeur non finie lue en
+  base en la traitant comme une mesure absente, sur les trois chemins de lecture
+  (`/api/sondes`, `/api/releves` brut, `/api/releves` agrégé)
+- **Pourquoi** : Les bornes seules ne suffisent pas — elles n'assainissent pas les
+  lignes écrites avant elles, et rien ne permet de purger une ligne depuis
+  l'application. La tolérance en lecture seule ne suffit pas non plus : elle
+  laisserait entrer des données aberrantes qui écraseraient l'échelle des
+  graphiques. Le coût de la seconde est négligeable (un `math.isfinite` par
+  valeur) et elle transforme une panne totale en un point manquant
+- **Gestionnaire de `RequestValidationError`** : le gestionnaire par défaut de
+  FastAPI recopie l'entrée rejetée dans le corps du 422. Quand cette entrée est
+  non finie, `json.dumps` lève et le client reçoit un 500 opaque — la validation
+  faisait son travail, c'est son compte rendu qui cassait. Un gestionnaire dédié
+  remplace les non-finis par leur écriture texte
+- **Trade-off** : Une ligne non finie déjà en base devient un trou dans la courbe
+  sans être signalée. C'est le même traitement qu'un relevé qui ne porte pas la
+  grandeur, et le cas est désormais impossible à créer. Vérifié sur la base de
+  production : 0 ligne non finie sur 7478 au moment du correctif
+- **Note SQLite** : SQLite n'a pas de représentation pour `NaN` et le stocke en
+  `NULL` — un `NaN` se traduisait donc par une mesure perdue, pas par une ligne
+  empoisonnée. C'est `±inf` qui fait l'aller-retour intact et constituait le vrai
+  vecteur. Consigné par un test, l'hypothèse étant portante pour le correctif
 
 ---
 

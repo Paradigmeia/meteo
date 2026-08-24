@@ -1,4 +1,7 @@
 from fastapi import FastAPI, HTTPException, Security, Depends, Query
+from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 from fastapi.security.api_key import APIKeyHeader
 from fastapi.middleware.cors import CORSMiddleware
 from collections import defaultdict
@@ -7,10 +10,14 @@ from datetime import datetime, timedelta, timezone
 import secrets
 import httpx
 import asyncio
+import math
 
 from config import API_KEY
 from database import init_db, get_db
-from models import ReleverPayload, SondeOut, DernierReleve, ReleverOut
+from models import (
+    ReleverPayload, SondeOut, DernierReleve, ReleverOut,
+    TEMP_MIN, TEMP_MAX, HUM_MIN, HUM_MAX,
+)
 
 METEO_URL = (
     "https://api.open-meteo.com/v1/forecast"
@@ -61,27 +68,81 @@ app.add_middleware(
 )
 
 
+def _json_safe(value):
+    """Remplace récursivement les flottants non finis par leur écriture texte."""
+    if isinstance(value, float) and not math.isfinite(value):
+        return repr(value)
+    if isinstance(value, dict):
+        return {k: _json_safe(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(v) for v in value]
+    return value
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_error_handler(request, exc: RequestValidationError):
+    """Renvoie un 422 lisible même quand la valeur rejetée est non finie.
+
+    Le gestionnaire par défaut recopie l'entrée fautive dans le corps de la
+    réponse. Si c'est NaN ou ±inf, json.dumps lève et le client reçoit un 500
+    opaque au lieu du 422 mérité — la validation a bien fait son travail, mais
+    c'est le compte rendu de ce travail qui casse (issue #36).
+    """
+    return JSONResponse(
+        status_code=422,
+        content={"detail": _json_safe(jsonable_encoder(exc.errors()))},
+    )
+
+
 @app.get("/")
 @app.get("/health")
 async def health():
     return {"status": "ok"}
 
 
-def _parse_shelly_value(value: str | None) -> float | None:
-    """Convertit un paramètre de webhook Shelly en float.
+def _parse_shelly_value(value: str | None, low: float, high: float, label: str) -> float | None:
+    """Convertit un paramètre de webhook Shelly en float, borné.
 
     Le firmware HTG3 sérialise ${ev.tC}/${ev.rh} en la chaîne littérale
     "null" quand ce champ est absent du rapport ayant déclenché l'action
     (ex: rapport déclenché par un changement de température, où ev.rh
     n'existe pas). On traite donc "null" comme une valeur absente plutôt
     que de rejeter la requête.
+
+    `float()` accepte "nan", "inf" et "-inf" : sans le contrôle de finitude,
+    ces valeurs entraient en base et faisaient ensuite échouer la sérialisation
+    JSON de toute la réponse de lecture (issue #36). Les bornes écartent en plus
+    l'aberrant, qui écraserait l'échelle des graphiques.
     """
     if value is None or value.strip().lower() in ("", "null"):
         return None
     try:
-        return float(value)
+        parsed = float(value)
     except ValueError:
         raise HTTPException(status_code=422, detail=f"Valeur invalide : {value!r}")
+    if not math.isfinite(parsed):
+        raise HTTPException(status_code=422, detail=f"Valeur non finie : {value!r}")
+    if not low <= parsed <= high:
+        raise HTTPException(
+            status_code=422,
+            detail=f"{label} hors bornes ({low} à {high}) : {parsed}",
+        )
+    return parsed
+
+
+def _finite_or_none(value: float | None) -> float | None:
+    """Neutralise une valeur non finie lue en base.
+
+    Les bornes à l'écriture empêchent d'en créer de nouvelles, mais une ligne
+    écrite avant ce garde-fou reste possible — et une seule suffirait à faire
+    échouer la sérialisation JSON de la réponse entière, pas seulement de la
+    ligne fautive (issue #36). On la traite comme une mesure absente, exactement
+    comme un relevé qui ne porte pas cette grandeur : le reste de la plage
+    continue de s'afficher.
+    """
+    if value is None or not math.isfinite(value):
+        return None
+    return value
 
 
 @app.get("/api/releve/{slug}", status_code=200)
@@ -93,8 +154,8 @@ async def get_releve(slug: str, key: str, temp: str | None = None, hum: str | No
     """
     if not API_KEY or not secrets.compare_digest(key, API_KEY):
         raise HTTPException(status_code=401, detail="Clé API invalide")
-    temp_val = _parse_shelly_value(temp)
-    hum_val = _parse_shelly_value(hum)
+    temp_val = _parse_shelly_value(temp, TEMP_MIN, TEMP_MAX, "Température")
+    hum_val = _parse_shelly_value(hum, HUM_MIN, HUM_MAX, "Humidité")
     if temp_val is None and hum_val is None:
         raise HTTPException(status_code=422, detail="Au moins temp ou hum est requis")
     async with get_db() as db:
@@ -159,8 +220,8 @@ async def get_sondes():
             if recu_le_temp and recu_le_hum:
                 recu_le = recu_le_temp if recu_le_temp > recu_le_hum else recu_le_hum
             dernier = DernierReleve(
-                temperature=temp,
-                humidite=hum,
+                temperature=_finite_or_none(temp),
+                humidite=_finite_or_none(hum),
                 recu_le=_parse_recu_le(recu_le_temp or recu_le_hum),
                 recu_le_hum=_parse_recu_le(recu_le_hum) if recu_le_hum else None,
             )
@@ -194,6 +255,10 @@ def _aggregate(rows, bucket_seconds):
     for temp, hum, recu_le_str in rows:
         dt = _parse_recu_le(recu_le_str)
         key = int(dt.timestamp() // bucket_seconds) * bucket_seconds
+        # Une valeur non finie contaminerait la moyenne de tout le bucket : on
+        # l'écarte de l'accumulation comme une mesure absente (issue #36).
+        temp = _finite_or_none(temp)
+        hum = _finite_or_none(hum)
         if temp is not None:
             buckets[key]["temps"].append(temp)
         if hum is not None:
@@ -260,7 +325,11 @@ async def get_releves(
     if bucket:
         return _aggregate(rows, bucket)
     return [
-        ReleverOut(temperature=r[0], humidite=r[1], recu_le=_parse_recu_le(r[2]))
+        ReleverOut(
+            temperature=_finite_or_none(r[0]),
+            humidite=_finite_or_none(r[1]),
+            recu_le=_parse_recu_le(r[2]),
+        )
         for r in rows
     ]
 

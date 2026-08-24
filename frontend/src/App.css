@@ -95,6 +95,11 @@
   background: #EDE6DB; border: none; border-radius: 8px; padding: 6px 8px; font-size: 12px; color: #1A1714;
 }
 .analyse-legend { flex-wrap: wrap; }
+.analyse-error {
+  display: flex; align-items: center; gap: 8px; margin-bottom: 1rem;
+  background: #FBEDE3; border: 1px solid #D85A30; border-radius: 10px;
+  padding: 10px 12px; font-size: 13px; color: #8A3A18;
+}
 @media (max-width: 1023px) {
   .analyse-layout { grid-template-columns: 1fr; }
   .analyse-sidebar { position: static; }
