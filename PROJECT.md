@@ -44,7 +44,14 @@ par quatre issues successives, chacune avec sa branche et sa PR :
 L'issue #31 (dette du letterboxing SVG) est close sans travail dédié : sa cause
 a été supprimée par #32, cf. PLAN.md décision 12.
 
-Restent ouvertes, hors LOT et sans urgence : #30 (refactor — extraire la
+Le LOT est déclaré livré au sens où tout son périmètre initial est en
+production et validé. Une issue ouverte porte encore la mention « LOT 5 » :
+**#28 — suppression des indices de confort** (Heat Index, point de rosée, ΔT).
+Ce n'est pas du périmètre inachevé mais une réduction de périmètre décidée à
+l'usage : les trois indices sont livrés et fonctionnels, simplement inutilisés.
+À traiter comme une évolution post-livraison.
+
+Restent aussi ouvertes, hors LOT et sans urgence : #30 (refactor — extraire la
 géométrie curseur→viewBox dans `chartUtils.js` et la partager avec
 `HistoriqueChart`) et les six issues de l'audit transversal #33 → #38.
 
