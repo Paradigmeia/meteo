@@ -63,7 +63,7 @@ export default function AnalyseView({ sondes, meteo, onBack }) {
   const customRange = useCustomRange && customFrom && customTo
     ? { from: toIso(customFrom), to: toIso(customTo) }
     : null
-  const { data: relevesBySlug } = useAnalyseReleves(slugs, quickCode, customRange)
+  const { data: relevesBySlug, failed: relevesFailed } = useAnalyseReleves(slugs, quickCode, customRange)
   const { start: rangeStart, end: rangeEnd } = rangeBoundsMs(quickCode, customRange)
 
   function selectQuick(code) {
@@ -345,6 +345,14 @@ export default function AnalyseView({ sondes, meteo, onBack }) {
               <button type="button" aria-pressed={splitAxes} className={`axis-toggle-btn${splitAxes ? ' active' : ''}`} onClick={() => setSplitAxes(true)}>
                 Séparé
               </button>
+            </div>
+          )}
+
+          {relevesFailed && (
+            <div className="analyse-error" role="status">
+              <i className="ti ti-alert-triangle" />
+              Certaines données n'ont pas pu être chargées — l'affichage peut
+              dater. Nouvelle tentative automatique toutes les 30 secondes.
             </div>
           )}
 

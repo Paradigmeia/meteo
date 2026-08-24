@@ -28,6 +28,55 @@ Légende : 🔲 À faire · 🔄 En cours · ✅ Livré · ⚠️ Dette techniqu
 
 ## Changelog
 
+### 2026-08-24 — Issue #36 : valeurs non finies (backend + remontée d'erreur frontend)
+
+- **Cause** : `temp: float` acceptait `NaN`/`±inf` (défaut Pydantic) et
+  `_parse_shelly_value` faisait un `float()` nu. Une valeur non finie en base
+  faisait échouer la sérialisation JSON de **toute** la réponse, pas seulement de
+  la ligne fautive → 500 sur `/api/releves` **et** sur `/api/sondes`, donc Vue
+  Analyse *et* dashboard vides, sans message
+- **`models.py`** : bornes `allow_inf_nan=False` + `ge`/`le` sur `ReleverPayload`
+  (température -100..100 °C, humidité 0..100 %), constantes partagées
+- **`main.py`** : `_parse_shelly_value` prend ses bornes en paramètre et rejette
+  non finis et hors bornes en 422 ; `_finite_or_none` neutralise une valeur non
+  finie **lue** en base sur les trois chemins de lecture (`/api/sondes`,
+  `/api/releves` brut et agrégé) — une ligne antérieure au correctif devient une
+  mesure absente au lieu d'une panne totale. Sur `/api/releves` c'est un point
+  parmi des centaines ; sur `/api/sondes` c'est la valeur courante de la sonde
+  qui disparaît du dashboard, le temps qu'un relevé sain la remplace
+- **`main.py`** : gestionnaire de `RequestValidationError`. Celui de FastAPI
+  recopie l'entrée rejetée dans le corps du 422 ; non finie, elle n'est pas
+  sérialisable et le client recevait un 500 opaque — la validation marchait,
+  c'est son compte rendu qui cassait
+- **`main.py`** : `/api/meteo` assaini avant mise en cache. `json.loads` accepte
+  les littéraux `NaN`/`Infinity`, et le cache est renseigné avant la
+  sérialisation : une réponse amont empoisonnée aurait produit 30 minutes de 500
+- **Humidité écrêtée plutôt que rejetée** dans une marge de 5 points autour de
+  ses bornes : un capteur en condensation peut rapporter 100,2 %, et le Shelly
+  n'émet qu'une fois — un rejet perdrait le relevé définitivement. Au-delà de la
+  marge, c'est une aberration et le rejet demeure. La température reste rejetée
+  dès le dépassement, ses bornes étant trop larges pour qu'il s'agisse d'une
+  imprécision
+- **`useAnalyseReleves.js`** : le `catch {}` qui confondait « pas de données » et
+  « requête en échec » est remplacé par un marqueur par sonde (`null` = échec,
+  `[]` = plage vide). Une sonde en échec n'emporte plus l'affichage des autres
+- **`AnalyseView.jsx` / `App.css`** : bandeau d'avertissement quand au moins une
+  requête a échoué, au lieu d'un graphique vide silencieux
+- **`test_main.py`** : 45 tests (15 sur `main`, 30 ajoutés). Non finis et hors
+  bornes rejetés sur les deux endpoints, corps JSON bruts compris (`NaN`,
+  `Infinity`, `1e400`, `-1e400` — `1e400` étant du JSON valide qui déborde, c'est
+  le vecteur le plus plausible) ; résilience en lecture sur les trois chemins et
+  **sur les deux grandeurs** ; écrêtage de l'humidité ; réponse météo amont
+  empoisonnée ; comportement SQLite consigné. Chaque garde-fou a été neutralisé
+  isolément pour vérifier qu'au moins un test tombe : garde-fou température 4
+  échecs, humidité 3, gestionnaire 422 4, assainissement météo 1, écrêtage 1
+- **Note SQLite** : SQLite stocke `NaN` en `NULL`, donc un `NaN` était une mesure
+  perdue, pas une ligne empoisonnée. C'est `±inf` qui fait l'aller-retour intact
+  et constituait le vrai vecteur — le rapport d'origine de l'issue était juste
+  sur le mécanisme mais imprécis sur ce point
+- Base de production vérifiée au moment du correctif : 0 ligne non finie sur 7478
+- SPEC.md v1.5 → v1.6 (§4.1, bornes) ; PLAN.md v1.5 → v1.6 (décision 13)
+
 ### 2026-08-24 — Issue #28 : suppression des indices de confort (Vue Analyse)
 
 - **`AnalyseView.jsx`** : section sidebar « Indices de confort » retirée (Heat

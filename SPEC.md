@@ -1,6 +1,6 @@
 # SPEC.md — maison-temp
 
-**Version** : 1.5
+**Version** : 1.6
 **Date** : 2026-08-24
 **Objectif principal** : Suivre en temps réel et en historique les températures et taux d'humidité de la maison (intérieur + extérieur) via un dashboard web responsive accessible en ligne.
 
@@ -92,6 +92,11 @@ Body JSON : { "temp": 21.4, "hum": 58.2 }
 Règles métier communes :
 - Le `slug` dans l'URL identifie la sonde (ex: `chambre-parents`)
 - Si le slug est inconnu → 404
+- Les valeurs sont bornées à l'écriture : température entre -100 et 100 °C,
+  humidité entre 0 et 100 %. Une valeur non finie (`NaN`, `inf`, ou un littéral
+  JSON qui déborde comme `1e400`) ou hors bornes est rejetée en 422 et n'entre
+  pas en base — une seule valeur non finie stockée suffirait à rendre illisible
+  toute une réponse de lecture, pas seulement la ligne fautive
 - Le Shelly envoie un relevé si variation ≥ 0,5°C ou 5% humidité, et au maximum toutes les 2h inconditionnellement
 - Chaque ligne en base peut contenir temp seule, hum seule, ou les deux
 - L'affichage agrège le dernier relevé de temp et le dernier relevé de hum séparément
