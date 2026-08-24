@@ -199,9 +199,8 @@ de cette vue.
 Une section "Type de mesure" de la barre latérale filtre les courbes par axe :
 deux cases "Température" et "Humidité", cochées par défaut toutes les deux.
 Décocher un type masque toutes les courbes de cet axe, toutes catégories
-confondues (mesures brutes, moyennes glissantes, indices de confort, ΔT,
-Open-Meteo, et bande min/max qui est intrinsèquement une donnée de
-température). En mode combiné le graphique devient alors mono-axe ; en mode
+confondues (mesures brutes, moyennes glissantes, Open-Meteo, et bande min/max
+qui est intrinsèquement une donnée de température). En mode combiné le graphique devient alors mono-axe ; en mode
 séparé le panneau correspondant disparaît entièrement. Le filtre est propre au
 mode ligne : il est masqué en histogramme et en nuage de points, dont la
 sémantique ne dépend pas de ce choix. Préférence persistée en localStorage.

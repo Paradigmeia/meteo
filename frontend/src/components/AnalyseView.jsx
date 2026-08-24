@@ -148,9 +148,9 @@ export default function AnalyseView({ sondes, meteo, onBack }) {
   const lines = [...rawLines, ...avgLines, ...meteoLines]
 
   // Filtre par type de mesure : masque toutes les courbes de l'axe décoché,
-  // toutes catégories confondues (brutes, moyennes glissantes, indices de
-  // confort, ΔT, Open-Meteo). La bande min/max est intrinsèquement une donnée
-  // de température, elle suit donc showTemp.
+  // toutes catégories confondues (brutes, moyennes glissantes, Open-Meteo).
+  // La bande min/max est intrinsèquement une donnée de température, elle suit
+  // donc showTemp.
   const visibleLines = lines.filter(l => (l.axis === 'temp' ? showTemp : showHum))
   const visibleBands = showTemp ? bandEntries : []
 
