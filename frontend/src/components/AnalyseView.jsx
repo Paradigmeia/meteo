@@ -2,9 +2,9 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import AnalyseChart from './AnalyseChart'
 import { useAnalyseReleves } from '../hooks/useAnalyseReleves'
 import {
-  PERIOD_OPTIONS, sondeColor, METEO_COLOR, DELTA_T_COLOR,
-  AVG_1H_DASH, AVG_6H_DASH, HEAT_INDEX_DASH, DEW_POINT_DASH,
-  movingAverage, dailyMinMaxBand, heatIndexC, dewPointC, computeDeltaT,
+  PERIOD_OPTIONS, sondeColor, METEO_COLOR,
+  AVG_1H_DASH, AVG_6H_DASH,
+  movingAverage, dailyMinMaxBand,
   loadAnalysePrefs, saveAnalysePrefs, rangeBoundsMs,
 } from '../utils/analyseUtils'
 
@@ -36,9 +36,6 @@ export default function AnalyseView({ sondes, meteo, onBack }) {
   const [avg1h, setAvg1h] = useState(() => initialPrefs.avg1h ?? false)
   const [avg6h, setAvg6h] = useState(() => initialPrefs.avg6h ?? false)
   const [minMaxBand, setMinMaxBand] = useState(() => initialPrefs.minMaxBand ?? false)
-  const [heatIndex, setHeatIndex] = useState(() => initialPrefs.heatIndex ?? false)
-  const [dewPoint, setDewPoint] = useState(() => initialPrefs.dewPoint ?? false)
-  const [deltaT, setDeltaT] = useState(() => initialPrefs.deltaT ?? false)
   const [mode, setMode] = useState(() => initialPrefs.mode ?? 'line')
   const [quickCode, setQuickCode] = useState(() => initialPrefs.quickCode ?? '24h')
   const [splitAxes, setSplitAxes] = useState(() => initialPrefs.splitAxes ?? false)
@@ -57,10 +54,10 @@ export default function AnalyseView({ sondes, meteo, onBack }) {
   useEffect(() => {
     saveAnalysePrefs({
       checkedSondes: [...checkedSondes],
-      meteoChecked, avg1h, avg6h, minMaxBand, heatIndex, dewPoint, deltaT,
+      meteoChecked, avg1h, avg6h, minMaxBand,
       mode, quickCode, splitAxes, showTemp, showHum,
     })
-  }, [checkedSondes, meteoChecked, avg1h, avg6h, minMaxBand, heatIndex, dewPoint, deltaT, mode, quickCode, splitAxes, showTemp, showHum])
+  }, [checkedSondes, meteoChecked, avg1h, avg6h, minMaxBand, mode, quickCode, splitAxes, showTemp, showHum])
 
   const slugs = useMemo(() => sondes.map(s => s.slug), [sondes])
   const customRange = useCustomRange && customFrom && customTo
@@ -140,35 +137,6 @@ export default function AnalyseView({ sondes, meteo, onBack }) {
       .filter(b => b.bands.length)
     : []
 
-  const comfortLines = checkedList.flatMap(s => {
-    const releves = relevesBySlug[s.slug] ?? []
-    const color = sondeColor(s.slug)
-    const out = []
-    if (heatIndex) {
-      const pts = releves
-        .map(r => ({ t: new Date(r.recu_le).getTime(), v: heatIndexC(r.temperature, r.humidite) }))
-        .filter(p => p.v != null)
-      if (pts.length) out.push({ id: `${s.slug}-hi`, label: `${s.nom} — Indice de chaleur`, color, axis: 'temp', width: 1.5, dash: HEAT_INDEX_DASH, points: pts })
-    }
-    if (dewPoint) {
-      const pts = releves
-        .map(r => ({ t: new Date(r.recu_le).getTime(), v: dewPointC(r.temperature, r.humidite) }))
-        .filter(p => p.v != null)
-      if (pts.length) out.push({ id: `${s.slug}-td`, label: `${s.nom} — Point de rosée`, color, axis: 'temp', width: 1.5, dash: DEW_POINT_DASH, points: pts })
-    }
-    return out
-  })
-
-  const interiorSlugs = sondes.filter(s => !s.slug.startsWith('ext')).map(s => s.slug)
-  const exteriorSlugs = sondes.filter(s => s.slug.startsWith('ext')).map(s => s.slug)
-  const deltaTLines = []
-  if (deltaT && interiorSlugs.length && exteriorSlugs.length) {
-    const interiorReleves = interiorSlugs.flatMap(slug => relevesBySlug[slug] ?? [])
-    const exteriorReleves = exteriorSlugs.flatMap(slug => relevesBySlug[slug] ?? [])
-    const pts = computeDeltaT(interiorReleves, exteriorReleves).map(d => ({ t: new Date(d.recu_le).getTime(), v: d.delta }))
-    if (pts.length) deltaTLines.push({ id: 'deltaT', label: 'Écart intérieur/extérieur (ΔT)', color: DELTA_T_COLOR, axis: 'temp', width: 1.5, dash: '5 2', points: pts })
-  }
-
   const meteoLines = []
   if (meteoChecked && meteo?.hourly?.time) {
     const pts = meteo.hourly.time
@@ -177,7 +145,7 @@ export default function AnalyseView({ sondes, meteo, onBack }) {
     if (pts.length) meteoLines.push({ id: 'meteo', label: 'Open-Meteo Ascain', color: METEO_COLOR, axis: 'temp', width: 1.5, dash: '2 2', points: pts })
   }
 
-  const lines = [...rawLines, ...avgLines, ...comfortLines, ...deltaTLines, ...meteoLines]
+  const lines = [...rawLines, ...avgLines, ...meteoLines]
 
   // Filtre par type de mesure : masque toutes les courbes de l'axe décoché,
   // toutes catégories confondues (brutes, moyennes glissantes, indices de
@@ -284,22 +252,6 @@ export default function AnalyseView({ sondes, meteo, onBack }) {
             <label className="analyse-check">
               <input type="checkbox" checked={minMaxBand} onChange={e => setMinMaxBand(e.target.checked)} />
               Bande min/max journalière
-            </label>
-          </div>
-
-          <div className="analyse-group">
-            <p className="section-label">Indices de confort</p>
-            <label className="analyse-check">
-              <input type="checkbox" checked={heatIndex} onChange={e => setHeatIndex(e.target.checked)} />
-              Chaleur ressentie (Heat Index)
-            </label>
-            <label className="analyse-check">
-              <input type="checkbox" checked={dewPoint} onChange={e => setDewPoint(e.target.checked)} />
-              Point de rosée
-            </label>
-            <label className="analyse-check">
-              <input type="checkbox" checked={deltaT} onChange={e => setDeltaT(e.target.checked)} />
-              Écart intérieur/extérieur (ΔT)
             </label>
           </div>
 

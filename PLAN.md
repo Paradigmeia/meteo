@@ -1,8 +1,8 @@
 # PLAN.md — maison-temp
 
-**Version** : 1.4
+**Version** : 1.5
 **Date** : 2026-08-24
-**Référence** : SPEC.md v1.4
+**Référence** : SPEC.md v1.5
 
 ---
 
@@ -174,6 +174,12 @@ Ce que la maquette montre et que le code doit reproduire :
   reste simple et non couplé aux préférences UI
 - **Trade-off** : Sur 90j/1an avec 4 sondes, le volume de points peut être élevé.
   Si perf insuffisante, migrer les calculs côté backend en v2.
+
+> **Note (2026-08-24)** : la partie Heat Index / point de rosée de cette décision
+> ne s'applique plus — fonctionnalité retirée (jugée inutilisée à l'usage, cf.
+> issue #28). Le choix de calcul frontend reste valable pour les moyennes
+> glissantes, et le trade-off de volume ci-dessus s'en trouve allégé : trois
+> séries dérivées de moins par sonde cochée.
 
 ### Décision 11 (2026-07-04)
 

@@ -1,6 +1,6 @@
 # SPEC.md — maison-temp
 
-**Version** : 1.4
+**Version** : 1.5
 **Date** : 2026-08-24
 **Objectif principal** : Suivre en temps réel et en historique les températures et taux d'humidité de la maison (intérieur + extérieur) via un dashboard web responsive accessible en ligne.
 
@@ -184,8 +184,6 @@ hauteur fluide — cf. plus bas) toute combinaison de :
 - Température Open-Meteo Ascain (comparaison modèle vs sonde réelle)
 - Moyennes glissantes 1h et 6h
 - Bande min/max journalière
-- Indices de confort : chaleur ressentie (Heat Index, si T > 27°C et H > 40%),
-  point de rosée (Td = T - ((100 - H) / 5)), écart intérieur/extérieur (ΔT)
 - Histogramme de distribution (mode exclusif, tranches 0.5°C)
 - Scatter temp/humidité (mode exclusif, nuage de points)
 
