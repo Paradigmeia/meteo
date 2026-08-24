@@ -13,7 +13,7 @@
 | LOT 2 | Frontend React — dashboard temps réel | ✅ Livré | #6 | lot2-frontend |
 | LOT 3 | Frontend React — historique + graphiques | 🗄️ Abandonné — absorbé par LOT 2 (2026-05-30) | — | — |
 | LOT 4 | Déploiement OVH — Nginx + systemd + HTTPS | ✅ Livré | #7 | lot4-deploy |
-| LOT 5 | Frontend React — vue Analyse desktop (multi-courbes, expert) | 🔄 En cours | — | feat/5-vue-analyse |
+| LOT 5 | Frontend React — vue Analyse desktop (multi-courbes, expert) | ✅ Livré | #20, #22, #25, #29, #32 | feat/5-vue-analyse (+ une branche par issue) |
 
 Légende : 🔲 À faire · 🔄 En cours · ✅ Livré · ⚠️ Dette technique · 🗄️ Abandonné
 
@@ -27,6 +27,26 @@ Légende : 🔲 À faire · 🔄 En cours · ✅ Livré · ⚠️ Dette techniqu
 ---
 
 ## Changelog
+
+### 2026-08-24 — LOT 5 livré
+
+Vue Analyse desktop complète. Le LOT a été ouvert par l'issue #19 puis affiné
+par quatre issues successives, chacune avec sa branche et sa PR :
+
+| Issue | PR | Apport |
+|---|---|---|
+| #19 | #20 | Vue expert multi-courbes : mesures brutes par sonde, Open-Meteo, moyennes glissantes, bande min/max, indices de confort, histogramme, nuage de points, sélecteur de plage, panneau de sélection latéral, légende dynamique, préférences persistées |
+| #21 | #22 | Layout pleine largeur desktop (extraction du conteneur mobile 390px) |
+| #24 | #25 | Bascule « Combiné / Séparé » des axes température/humidité |
+| #26 | #29 | Alignement de la ligne de repérage sur le curseur (`getScreenCTM`) |
+| #27 | #32 | Filtre par type de mesure + dimensions fluides du graphique |
+
+L'issue #31 (dette du letterboxing SVG) est close sans travail dédié : sa cause
+a été supprimée par #32, cf. PLAN.md décision 12.
+
+Restent ouvertes, hors LOT et sans urgence : #30 (refactor — extraire la
+géométrie curseur→viewBox dans `chartUtils.js` et la partager avec
+`HistoriqueChart`) et les six issues de l'audit transversal #33 → #38.
 
 ### 2026-08-24 — Issue #27 : filtre par type de mesure + hauteur fluide (Vue Analyse)
 
