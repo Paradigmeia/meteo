@@ -199,9 +199,10 @@ Ce que la maquette montre et que le code doit reproduire :
   module (`H = 480` dans `AnalyseChart.jsx`), alors que la vue est desktop-only
   et laisse souvent 200 à 400px de vide sous la carte graphique. Par ailleurs,
   rien ne permettait de n'afficher que la température ou que l'humidité
-- **Choix** : (a) La hauteur est mesurée par `AnalyseView` (`useLayoutEffect` +
-  écouteur `resize`) et passée en prop `height` à `AnalyseChart`, qui en dérive
-  toute sa géométrie verticale ; plancher `MIN_CHART_HEIGHT = 480`.
+- **Choix** : (a) Les dimensions sont mesurées par `AnalyseView`
+  (`useLayoutEffect` + écouteur `resize`) et passées en props `width`/`height` à
+  `AnalyseChart`, dont le `viewBox` les reprend telles quelles ; planchers
+  `MIN_CHART_HEIGHT = 480` et `MIN_CHART_WIDTH = 600`.
   (b) Nouvelle section "Type de mesure" dans la barre latérale ; le filtrage se
   fait en amont sur `lines`/`bands` dans `AnalyseView`, `AnalyseChart` recevant
   en plus `showTemp`/`showHum` pour savoir combien de panneaux rendre en mode
@@ -213,6 +214,14 @@ Ce que la maquette montre et que le code doit reproduire :
   composant de rendu ignorant des préférences utilisateur : le mode combiné
   devient mono-axe sans aucun cas particulier, puisque l'échelle de l'axe
   décoché se retrouve simplement vide
+- **Corollaire (largeur)** : le `viewBox` avait jusqu'ici une largeur figée
+  (`W = 900`) pour une largeur CSS de 100%. Le `preserveAspectRatio` par défaut
+  (`xMidYMid meet`) mettait donc le dessin à l'échelle `min(largeurCarte / 900, 1)` :
+  bandes blanches latérales sur carte plus large, et — plus gênant une fois la
+  hauteur devenue fluide — letterboxing vertical sur carte plus étroite, qui
+  aurait mangé une partie de la hauteur gagnée. Reprendre la largeur mesurée met
+  l'échelle à exactement 1 dans les deux sens ; le graphique devient enfin pleine
+  largeur, ce que visait la décision de layout de l'issue #21
 - **Trade-off** : La mesure raisonne en coordonnées document
   (`getBoundingClientRect().top + scrollY`) pour ne pas dépendre du défilement,
   et déduit la hauteur de ce qui suit la carte (légende, marge basse) afin de ne

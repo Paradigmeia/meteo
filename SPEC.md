@@ -208,12 +208,13 @@ séparé le panneau correspondant disparaît entièrement. Le filtre est propre 
 mode ligne : il est masqué en histogramme et en nuage de points, dont la
 sémantique ne dépend pas de ce choix. Préférence persistée en localStorage.
 
-Le graphique a une hauteur fluide : il occupe l'espace vertical restant entre le
-haut de la carte graphique et le bas de la fenêtre, en gardant visible ce qui le
-suit (légende) et une marge basse. Plancher de 480px pour ne pas l'écraser sur
-petite fenêtre ; recalcul au redimensionnement, sans rechargement. En mode
-séparé, la hauteur disponible est partagée entre les panneaux actifs — et le
-panneau restant prend toute la hauteur si un seul type de mesure est coché.
+Le graphique est dimensionné sur la carte qui le contient : pleine largeur, et
+hauteur occupant l'espace vertical restant jusqu'au bas de la fenêtre, en gardant
+visible ce qui le suit (légende) et une marge basse. Planchers de 480px en
+hauteur et 600px en largeur pour ne pas l'écraser sur petite fenêtre ; recalcul
+au redimensionnement, sans rechargement. En mode séparé, la hauteur disponible
+est partagée entre les panneaux actifs — et le panneau restant prend toute la
+hauteur si un seul type de mesure est coché.
 
 Plage temporelle : boutons rapides (12h, 24h, 7j, 30j, 90j, 1 an) +
 date pickers libres "Du / Au". Les deux mécanismes sont exclusifs.

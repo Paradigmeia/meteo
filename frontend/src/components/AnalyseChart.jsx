@@ -2,26 +2,38 @@ import { useRef, useState } from 'react'
 import { niceTicks, linearScale, smooth } from '../utils/chartUtils'
 import { getTimeTicks, histogramBins, TEMP_AXIS_COLOR, HUM_AXIS_COLOR } from '../utils/analyseUtils'
 
-const W = 900
 const PL = 56, PR = 56, PT = 24, PB = 32
-const X0 = PL, X1 = W - PR
+const X0 = PL
 
-// Hauteur de repli si le parent n'a pas encore mesuré l'espace disponible
-// (premier rendu, environnement de test). Alignée sur MIN_CHART_HEIGHT
-// dans AnalyseView.
+// Largeur et hauteur de repli si le parent n'a pas encore mesuré la carte
+// (premier rendu, environnement de test). Alignées sur MIN_CHART_WIDTH et
+// MIN_CHART_HEIGHT dans AnalyseView.
+export const FALLBACK_CHART_WIDTH = 900
 export const FALLBACK_CHART_HEIGHT = 480
+
+// Le viewBox reprend les dimensions réelles de la carte : l'échelle de rendu
+// vaut alors exactement 1 et le dessin remplit la carte. Un viewBox de largeur
+// figée serait mis à l'échelle par le preserveAspectRatio par défaut
+// ("xMidYMid meet") — bandes blanches latérales sur carte plus large, et
+// letterboxing vertical (donc hauteur perdue) sur carte plus étroite.
 
 // Géométrie du mode "axes séparés" : un seul axe (gauche) par panneau, donc
 // moins de marge droite nécessaire. PL reste identique au mode combiné pour
 // garder les graduations temporelles alignées verticalement entre les deux
 // panneaux et par rapport au mode combiné.
-const SPLIT_X0 = PL, SPLIT_X1 = W - 20
+const SPLIT_X0 = PL, SPLIT_PR = 20
 // Marges verticales internes d'un panneau (unités du viewBox du panneau).
 const SPLIT_PAD_TOP = 16      // au-dessus de la courbe — panneau du haut ou panneau unique
 const SPLIT_PAD_INNER = 8     // du côté du trait de séparation
 const SPLIT_PAD_XLABELS = 32  // sous la courbe — panneau qui porte les libellés de l'axe X
-// Trait de séparation entre deux panneaux : bordure 1px + 8px de marge de chaque côté.
-const SPLIT_DIVIDER_H = 17
+// Trait de séparation entre deux panneaux. La hauteur retirée du partage et le
+// style appliqué dérivent des mêmes constantes, pour qu'ils ne divergent pas.
+const SPLIT_DIVIDER_BORDER = 1, SPLIT_DIVIDER_MARGIN = 8
+const SPLIT_DIVIDER_H = SPLIT_DIVIDER_BORDER + SPLIT_DIVIDER_MARGIN * 2
+const splitDividerStyle = {
+  borderTop: `${SPLIT_DIVIDER_BORDER}px solid rgba(0,0,0,.06)`,
+  margin: `${SPLIT_DIVIDER_MARGIN}px 0`,
+}
 
 function EmptyState({ message, height }) {
   return (
@@ -31,7 +43,7 @@ function EmptyState({ message, height }) {
   )
 }
 
-function LineChart({ lines, bands, splitAxes, showTemp, showHum, height, onHover }) {
+function LineChart({ lines, bands, splitAxes, showTemp, showHum, width, height, onHover }) {
   const [hoverX, setHoverX] = useState(null)
   const touchActiveRef = useRef(false)
 
@@ -40,9 +52,18 @@ function LineChart({ lines, bands, splitAxes, showTemp, showHum, height, onHover
     ...bands.flatMap(b => b.bands.flatMap(d => [d.dayStart, d.dayEnd])),
   ]
   if (allTimes.length === 0) {
-    return <EmptyState height={height} message="Cochez au moins une donnée pour afficher le graphique" />
+    return (
+      <EmptyState
+        height={height}
+        message={showTemp || showHum
+          ? 'Cochez au moins une donnée pour afficher le graphique'
+          : 'Cochez au moins un type de mesure pour afficher le graphique'}
+      />
+    )
   }
 
+  const X1 = width - PR
+  const SPLIT_X1 = width - SPLIT_PR
   const Y0 = PT, Y1 = height - PB
 
   const minTime = Math.min(...allTimes)
@@ -81,13 +102,15 @@ function LineChart({ lines, bands, splitAxes, showTemp, showHum, height, onHover
   }
 
   // Convertit la position du pointeur en abscisse dans le repère du viewBox.
-  // Une règle de trois sur getBoundingClientRect() serait fausse : les <svg> ont
-  // une largeur fluide mais une hauteur fixe en px, donc dès que la carte dépasse
-  // W (900) le preserveAspectRatio par défaut ("xMidYMid meet") dessine le contenu
-  // à l'échelle 1 et le centre horizontalement (issue #26). getScreenCTM() intègre
-  // cette transformation. Renvoie null si elle est indisponible — svg non rendu, ou
-  // environnement sans getScreenCTM/DOMPoint (jsdom) : mieux vaut ne pas déplacer le
-  // curseur que le poser au mauvais endroit.
+  // Le viewBox reprenant les dimensions mesurées de la carte, l'échelle vaut en
+  // principe 1 — mais une règle de trois sur getBoundingClientRect() resterait
+  // fragile : dès que le viewBox et la boîte divergent (mesure en retard d'une
+  // frame après un resize, arrondis sous-pixel, plancher de largeur atteint sur
+  // fenêtre étroite), le preserveAspectRatio par défaut ("xMidYMid meet") met le
+  // contenu à l'échelle et le recentre (issue #26). getScreenCTM() intègre cette
+  // transformation quelle qu'elle soit. Renvoie null si elle est indisponible —
+  // svg non rendu, ou environnement sans getScreenCTM/DOMPoint (jsdom) : mieux
+  // vaut ne pas déplacer le curseur que le poser au mauvais endroit.
   function getSvgX(e) {
     const touch = e.touches ? e.touches[0] : null
     if (e.touches && !touch) return null
@@ -152,7 +175,7 @@ function LineChart({ lines, bands, splitAxes, showTemp, showHum, height, onHover
     const combinedTemp = buildScale(tempValues, Y0, Y1, 5)
     const combinedHum = buildScale(humValues, Y0, Y1, 4)
     return (
-      <svg viewBox={`0 0 ${W} ${height}`} style={{ width: '100%', height, touchAction: 'none', display: 'block' }} {...eventHandlers}>
+      <svg viewBox={`0 0 ${width} ${height}`} style={{ width: '100%', height, touchAction: 'none', display: 'block' }} {...eventHandlers}>
         {combinedTemp.yOf && combinedTemp.ticks.map(v => (
           <line key={`grid-${v}`} x1={X0} y1={combinedTemp.yOf(v)} x2={X1} y2={combinedTemp.yOf(v)} stroke="rgba(0,0,0,0.06)" strokeWidth="0.5" />
         ))}
@@ -189,7 +212,7 @@ function LineChart({ lines, bands, splitAxes, showTemp, showHum, height, onHover
   function renderSplitPanel({ axis, panelHeight, y0, y1, scale, panelLines, panelBands, tickColor, formatTick, emptyLabel, showXLabels }) {
     return (
       <svg
-        key={axis} viewBox={`0 0 ${W} ${panelHeight}`}
+        key={axis} viewBox={`0 0 ${width} ${panelHeight}`}
         style={{ width: '100%', height: panelHeight, touchAction: 'none', display: 'block' }}
         {...eventHandlers}
       >
@@ -218,7 +241,7 @@ function LineChart({ lines, bands, splitAxes, showTemp, showHum, height, onHover
             )}
           </>
         ) : (
-          <text x={W / 2} y={panelHeight / 2} fill="#B5B0A8" fontSize="13" textAnchor="middle">{emptyLabel}</text>
+          <text x={width / 2} y={panelHeight / 2} fill="#B5B0A8" fontSize="13" textAnchor="middle">{emptyLabel}</text>
         )}
         {showXLabels && xTicks.map(t => (
           <text key={`xl-${t.time}`} x={t.x} y={panelHeight - 8} fill="#B5B0A8" fontSize="10" textAnchor="middle">{t.label}</text>
@@ -257,7 +280,7 @@ function LineChart({ lines, bands, splitAxes, showTemp, showHum, height, onHover
       {panels.map((panel, i) => (
         i === 0 ? panel : (
           <div key={`panel-${i}`}>
-            <div style={{ borderTop: '1px solid rgba(0,0,0,.06)', margin: '8px 0' }} />
+            <div style={splitDividerStyle} />
             {panel}
           </div>
         )
@@ -266,11 +289,12 @@ function LineChart({ lines, bands, splitAxes, showTemp, showHum, height, onHover
   )
 }
 
-function DistributionChart({ data, height }) {
+function DistributionChart({ data, width, height }) {
   const allValues = data.flatMap(d => d.values)
   if (allValues.length === 0) {
     return <EmptyState height={height} message="Cochez au moins une sonde pour afficher la distribution" />
   }
+  const X1 = width - PR
   const Y0 = PT, Y1 = height - PB
   const binSize = 0.5
   const globalMin = Math.floor(Math.min(...allValues) / binSize) * binSize
@@ -286,7 +310,7 @@ function DistributionChart({ data, height }) {
   const countTicks = niceTicks(0, maxCount, 4)
 
   return (
-    <svg viewBox={`0 0 ${W} ${height}`} style={{ width: '100%', height, display: 'block' }}>
+    <svg viewBox={`0 0 ${width} ${height}`} style={{ width: '100%', height, display: 'block' }}>
       {countTicks.map(c => (
         <line key={`grid-${c}`} x1={X0} y1={yOf(c)} x2={X1} y2={yOf(c)} stroke="rgba(0,0,0,0.06)" strokeWidth="0.5" />
       ))}
@@ -308,11 +332,12 @@ function DistributionChart({ data, height }) {
   )
 }
 
-function ScatterChart({ data, height }) {
+function ScatterChart({ data, width, height }) {
   const allPoints = data.flatMap(d => d.points)
   if (allPoints.length === 0) {
     return <EmptyState height={height} message="Cochez au moins une sonde pour afficher le nuage de points" />
   }
+  const X1 = width - PR
   const Y0 = PT, Y1 = height - PB
   const temps = allPoints.map(p => p.temp)
   const hums = allPoints.map(p => p.hum)
@@ -325,7 +350,7 @@ function ScatterChart({ data, height }) {
   const humTicks = niceTicks(minH, maxH, 5)
 
   return (
-    <svg viewBox={`0 0 ${W} ${height}`} style={{ width: '100%', height, display: 'block' }}>
+    <svg viewBox={`0 0 ${width} ${height}`} style={{ width: '100%', height, display: 'block' }}>
       {humTicks.map(v => (
         <line key={`grid-${v}`} x1={X0} y1={yOf(v)} x2={X1} y2={yOf(v)} stroke="rgba(0,0,0,0.06)" strokeWidth="0.5" />
       ))}
@@ -345,14 +370,14 @@ function ScatterChart({ data, height }) {
 export default function AnalyseChart({
   mode, lines = [], bands = [], distributionData = [], scatterData = [],
   splitAxes = false, showTemp = true, showHum = true,
-  height = FALLBACK_CHART_HEIGHT, onHover,
+  width = FALLBACK_CHART_WIDTH, height = FALLBACK_CHART_HEIGHT, onHover,
 }) {
-  if (mode === 'distribution') return <DistributionChart data={distributionData} height={height} />
-  if (mode === 'scatter') return <ScatterChart data={scatterData} height={height} />
+  if (mode === 'distribution') return <DistributionChart data={distributionData} width={width} height={height} />
+  if (mode === 'scatter') return <ScatterChart data={scatterData} width={width} height={height} />
   return (
     <LineChart
       lines={lines} bands={bands} splitAxes={splitAxes}
-      showTemp={showTemp} showHum={showHum} height={height} onHover={onHover}
+      showTemp={showTemp} showHum={showHum} width={width} height={height} onHover={onHover}
     />
   )
 }

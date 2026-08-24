@@ -3,17 +3,20 @@ import AnalyseChart from './AnalyseChart'
 import { useAnalyseReleves } from '../hooks/useAnalyseReleves'
 import {
   PERIOD_OPTIONS, sondeColor, METEO_COLOR, DELTA_T_COLOR,
-  TEMP_AXIS_COLOR, HUM_AXIS_COLOR,
   AVG_1H_DASH, AVG_6H_DASH, HEAT_INDEX_DASH, DEW_POINT_DASH,
   movingAverage, dailyMinMaxBand, heatIndexC, dewPointC, computeDeltaT,
   loadAnalysePrefs, saveAnalysePrefs, rangeBoundsMs,
 } from '../utils/analyseUtils'
 
-// Hauteur fluide du graphique : la carte s'étire jusqu'au bas de la fenêtre.
+// Dimensions fluides du graphique : le viewBox SVG reprend les dimensions
+// mesurées de la carte, qui s'étire jusqu'au bas de la fenêtre.
 // MIN_CHART_HEIGHT est la hauteur historique, conservée comme plancher pour ne
-// pas écraser le graphique sur petite fenêtre ou résolution basse.
+// pas écraser le graphique sur petite fenêtre ou résolution basse ;
+// MIN_CHART_WIDTH évite que les graduations se chevauchent sur carte étroite
+// (en deçà, le SVG se remet à l'échelle et le graphique est simplement réduit).
 const CHART_BOTTOM_MARGIN = 32
 const MIN_CHART_HEIGHT = 480
+const MIN_CHART_WIDTH = 600
 
 function toIso(datetimeLocal) {
   if (!datetimeLocal) return null
@@ -49,7 +52,7 @@ export default function AnalyseView({ sondes, meteo, onBack }) {
 
   const mainRef = useRef(null)
   const chartCardRef = useRef(null)
-  const [chartHeight, setChartHeight] = useState(MIN_CHART_HEIGHT)
+  const [chartSize, setChartSize] = useState({ width: MIN_CHART_WIDTH, height: MIN_CHART_HEIGHT })
 
   useEffect(() => {
     saveAnalysePrefs({
@@ -201,28 +204,31 @@ export default function AnalyseView({ sondes, meteo, onBack }) {
       ? scatterData.filter(d => d.points.length).map(d => ({ id: d.id, color: d.color, label: d.label }))
       : [...visibleLines, ...visibleBands]
 
-  // Mesure l'espace vertical restant sous le haut de la carte graphique. On
-  // raisonne en coordonnées document (rect.top + scrollY) pour que la mesure ne
-  // dépende pas du défilement ; changer la hauteur du graphique ne déplace pas
-  // le haut de la carte, donc pas de boucle de rétroaction.
+  // Mesure la zone de dessin utile de la carte graphique : sa largeur intérieure,
+  // et l'espace vertical restant jusqu'au bas de la fenêtre. On raisonne en
+  // coordonnées document (rect.top + scrollY) pour que la mesure ne dépende pas
+  // du défilement ; changer la taille du graphique ne déplace pas le haut de la
+  // carte ni sa largeur, donc pas de boucle de rétroaction.
   useLayoutEffect(() => {
     function measure() {
       const card = chartCardRef.current
       const main = mainRef.current
       if (!card || !main) return
       const styles = window.getComputedStyle(card)
-      const insets = ['paddingTop', 'paddingBottom', 'borderTopWidth', 'borderBottomWidth']
-        .reduce((sum, prop) => sum + (parseFloat(styles[prop]) || 0), 0)
+      const px = prop => parseFloat(styles[prop]) || 0
+      const vInsets = px('paddingTop') + px('paddingBottom') + px('borderTopWidth') + px('borderBottomWidth')
       const cardRect = card.getBoundingClientRect()
       // Ce qui suit la carte dans la colonne principale (légende, marge basse)
-      // doit rester visible : on le déduit de la hauteur disponible. Sans
-      // légende, la carte est le dernier enfant et sa marge basse se fusionne
-      // avec le bord de la colonne — on la reprend alors telle quelle.
-      const marginBottom = parseFloat(styles.marginBottom) || 0
-      const trailing = Math.max(marginBottom, main.getBoundingClientRect().bottom - cardRect.bottom)
+      // doit rester visible : on le déduit de la hauteur disponible. `.analyse-main`
+      // est un élément de grille, donc racine de contexte de formatage : la marge
+      // basse de la carte est bien comprise dans la hauteur de la colonne.
+      const trailing = Math.max(0, main.getBoundingClientRect().bottom - cardRect.bottom)
       const available = window.innerHeight - (cardRect.top + window.scrollY)
-        - trailing - CHART_BOTTOM_MARGIN - insets
-      setChartHeight(Math.max(MIN_CHART_HEIGHT, Math.round(available)))
+        - trailing - CHART_BOTTOM_MARGIN - vInsets
+      // clientWidth exclut les bordures mais pas les paddings.
+      const width = Math.max(MIN_CHART_WIDTH, Math.round(card.clientWidth - px('paddingLeft') - px('paddingRight')))
+      const height = Math.max(MIN_CHART_HEIGHT, Math.round(available))
+      setChartSize(prev => (prev.width === width && prev.height === height ? prev : { width, height }))
     }
     measure()
     window.addEventListener('resize', measure)
@@ -242,22 +248,6 @@ export default function AnalyseView({ sondes, meteo, onBack }) {
 
       <div className="analyse-layout">
         <aside className="analyse-sidebar">
-          {mode === 'line' && (
-            <div className="analyse-group">
-              <p className="section-label">Type de mesure</p>
-              <label className="analyse-check">
-                <input type="checkbox" checked={showTemp} onChange={e => toggleMeasureType(setShowTemp, e.target.checked)} />
-                <span className="analyse-swatch" style={{ background: TEMP_AXIS_COLOR }} />
-                Température
-              </label>
-              <label className="analyse-check">
-                <input type="checkbox" checked={showHum} onChange={e => toggleMeasureType(setShowHum, e.target.checked)} />
-                <span className="analyse-swatch" style={{ background: HUM_AXIS_COLOR }} />
-                Humidité
-              </label>
-            </div>
-          )}
-
           <div className="analyse-group">
             <p className="section-label">Mesures brutes par sonde</p>
             {sondes.map(s => (
@@ -330,6 +320,24 @@ export default function AnalyseView({ sondes, meteo, onBack }) {
               Nuage de points (temp/humidité)
             </label>
           </div>
+
+          {/* Placée en dernier : le filtre n'existe qu'en mode ligne, et le voir
+              disparaître ne doit pas décaler les cases situées au-dessus — la
+              case "Histogramme" qu'on vient de cocher resterait sinon sous le
+              curseur alors qu'une autre a pris sa place. */}
+          {mode === 'line' && (
+            <div className="analyse-group">
+              <p className="section-label">Type de mesure</p>
+              <label className="analyse-check">
+                <input type="checkbox" checked={showTemp} onChange={e => toggleMeasureType(setShowTemp, e.target.checked)} />
+                Température
+              </label>
+              <label className="analyse-check">
+                <input type="checkbox" checked={showHum} onChange={e => toggleMeasureType(setShowHum, e.target.checked)} />
+                Humidité
+              </label>
+            </div>
+          )}
         </aside>
 
         <div className="analyse-main" ref={mainRef}>
@@ -398,7 +406,8 @@ export default function AnalyseView({ sondes, meteo, onBack }) {
               splitAxes={splitAxes}
               showTemp={showTemp}
               showHum={showHum}
-              height={chartHeight}
+              width={chartSize.width}
+              height={chartSize.height}
               onHover={setHoverInfo}
             />
           </div>
