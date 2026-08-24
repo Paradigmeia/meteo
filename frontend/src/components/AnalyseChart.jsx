@@ -1,28 +1,37 @@
 import { useRef, useState } from 'react'
 import { niceTicks, linearScale, smooth } from '../utils/chartUtils'
-import { getTimeTicks, histogramBins } from '../utils/analyseUtils'
+import { getTimeTicks, histogramBins, TEMP_AXIS_COLOR, HUM_AXIS_COLOR } from '../utils/analyseUtils'
 
-const W = 900, H = 480
+const W = 900
 const PL = 56, PR = 56, PT = 24, PB = 32
-const X0 = PL, X1 = W - PR, Y0 = PT, Y1 = H - PB
+const X0 = PL, X1 = W - PR
+
+// Hauteur de repli si le parent n'a pas encore mesuré l'espace disponible
+// (premier rendu, environnement de test). Alignée sur MIN_CHART_HEIGHT
+// dans AnalyseView.
+export const FALLBACK_CHART_HEIGHT = 480
 
 // Géométrie du mode "axes séparés" : un seul axe (gauche) par panneau, donc
 // moins de marge droite nécessaire. PL reste identique au mode combiné pour
 // garder les graduations temporelles alignées verticalement entre les deux
 // panneaux et par rapport au mode combiné.
 const SPLIT_X0 = PL, SPLIT_X1 = W - 20
-const SPLIT_TOP_H = 220, SPLIT_TOP_Y0 = 16, SPLIT_TOP_Y1 = SPLIT_TOP_H - 8
-const SPLIT_BOTTOM_H = 220, SPLIT_BOTTOM_Y0 = 8, SPLIT_BOTTOM_Y1 = SPLIT_BOTTOM_H - 32
+// Marges verticales internes d'un panneau (unités du viewBox du panneau).
+const SPLIT_PAD_TOP = 16      // au-dessus de la courbe — panneau du haut ou panneau unique
+const SPLIT_PAD_INNER = 8     // du côté du trait de séparation
+const SPLIT_PAD_XLABELS = 32  // sous la courbe — panneau qui porte les libellés de l'axe X
+// Trait de séparation entre deux panneaux : bordure 1px + 8px de marge de chaque côté.
+const SPLIT_DIVIDER_H = 17
 
-function EmptyState({ message }) {
+function EmptyState({ message, height }) {
   return (
-    <div style={{ height: H, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#B5B0A8', fontSize: 13 }}>
+    <div style={{ height, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#B5B0A8', fontSize: 13 }}>
       {message}
     </div>
   )
 }
 
-function LineChart({ lines, bands, splitAxes, onHover }) {
+function LineChart({ lines, bands, splitAxes, showTemp, showHum, height, onHover }) {
   const [hoverX, setHoverX] = useState(null)
   const touchActiveRef = useRef(false)
 
@@ -31,8 +40,10 @@ function LineChart({ lines, bands, splitAxes, onHover }) {
     ...bands.flatMap(b => b.bands.flatMap(d => [d.dayStart, d.dayEnd])),
   ]
   if (allTimes.length === 0) {
-    return <EmptyState message="Cochez au moins une donnée pour afficher le graphique" />
+    return <EmptyState height={height} message="Cochez au moins une donnée pour afficher le graphique" />
   }
+
+  const Y0 = PT, Y1 = height - PB
 
   const minTime = Math.min(...allTimes)
   const maxTime = Math.max(...allTimes)
@@ -57,13 +68,6 @@ function LineChart({ lines, bands, splitAxes, onHover }) {
     const domMin = min - span * 0.08, domMax = max + span * 0.08
     return { yOf: v => linearScale(v, domMin, domMax, rangeBottom, rangeTop), ticks: niceTicks(min, max, tickCount) }
   }
-
-  // Échelles du mode combiné (double axe, un seul graphique) — inchangées par rapport à avant
-  const combinedTemp = buildScale(tempValues, Y0, Y1, 5)
-  const combinedHum = buildScale(humValues, Y0, Y1, 4)
-  // Échelles dédiées au mode séparé (chaque panneau a sa propre plage de pixels)
-  const splitTemp = buildScale(tempValues, SPLIT_TOP_Y0, SPLIT_TOP_Y1, 5)
-  const splitHum = buildScale(humValues, SPLIT_BOTTOM_Y0, SPLIT_BOTTOM_Y1, 4)
 
   const xTicks = getTimeTicks(minTime, maxTime, xOf)
 
@@ -116,7 +120,7 @@ function LineChart({ lines, bands, splitAxes, onHover }) {
   function handleTouchStart(e) { touchActiveRef.current = true; updateHover(e) }
   function handleTouchMove(e) { e.preventDefault(); updateHover(e) }
 
-  // Handlers communs aux 3 <svg> possibles (combiné, ou haut+bas en mode séparé) :
+  // Handlers communs aux <svg> possibles (combiné, ou panneaux du mode séparé) :
   // survoler n'importe lequel met à jour le même curseur et le même panneau de survol.
   const eventHandlers = {
     onMouseMove: handleMouseMove,
@@ -142,8 +146,13 @@ function LineChart({ lines, bands, splitAxes, onHover }) {
   }
 
   if (!splitAxes) {
+    // Mode combiné : si un seul type de mesure est coché, les lignes de l'autre
+    // axe ont déjà été filtrées en amont, son échelle est vide et son axe
+    // disparaît de lui-même — le graphique devient mono-axe sans cas particulier.
+    const combinedTemp = buildScale(tempValues, Y0, Y1, 5)
+    const combinedHum = buildScale(humValues, Y0, Y1, 4)
     return (
-      <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', height: H, touchAction: 'none', display: 'block' }} {...eventHandlers}>
+      <svg viewBox={`0 0 ${W} ${height}`} style={{ width: '100%', height, touchAction: 'none', display: 'block' }} {...eventHandlers}>
         {combinedTemp.yOf && combinedTemp.ticks.map(v => (
           <line key={`grid-${v}`} x1={X0} y1={combinedTemp.yOf(v)} x2={X1} y2={combinedTemp.yOf(v)} stroke="rgba(0,0,0,0.06)" strokeWidth="0.5" />
         ))}
@@ -162,13 +171,13 @@ function LineChart({ lines, bands, splitAxes, onHover }) {
         )))}
         {lines.map(line => renderLine(line, line.axis === 'temp' ? combinedTemp.yOf : combinedHum.yOf))}
         {combinedTemp.yOf && combinedTemp.ticks.map(v => (
-          <text key={`tl-${v}`} x={X0 - 6} y={combinedTemp.yOf(v) + 3.5} fill="#BA7517" fontSize="10" textAnchor="end">{v.toFixed(1)}°</text>
+          <text key={`tl-${v}`} x={X0 - 6} y={combinedTemp.yOf(v) + 3.5} fill={TEMP_AXIS_COLOR} fontSize="10" textAnchor="end">{v.toFixed(1)}°</text>
         ))}
         {combinedHum.yOf && combinedHum.ticks.map(v => (
-          <text key={`hl-${v}`} x={X1 + 6} y={combinedHum.yOf(v) + 3.5} fill="#1D9E75" fontSize="10" textAnchor="start">{Math.round(v)}%</text>
+          <text key={`hl-${v}`} x={X1 + 6} y={combinedHum.yOf(v) + 3.5} fill={HUM_AXIS_COLOR} fontSize="10" textAnchor="start">{Math.round(v)}%</text>
         ))}
         {xTicks.map(t => (
-          <text key={`xl-${t.time}`} x={t.x} y={H - 8} fill="#B5B0A8" fontSize="10" textAnchor="middle">{t.label}</text>
+          <text key={`xl-${t.time}`} x={t.x} y={height - 8} fill="#B5B0A8" fontSize="10" textAnchor="middle">{t.label}</text>
         ))}
         {hoverX != null && (
           <line x1={hoverX} y1={Y0} x2={hoverX} y2={Y1} stroke="#1A1714" strokeOpacity="0.15" strokeWidth="1" style={{ pointerEvents: 'none' }} />
@@ -177,9 +186,13 @@ function LineChart({ lines, bands, splitAxes, onHover }) {
     )
   }
 
-  function renderSplitPanel({ height, y0, y1, scale, panelLines, panelBands, tickColor, formatTick, emptyLabel, showXLabels }) {
+  function renderSplitPanel({ axis, panelHeight, y0, y1, scale, panelLines, panelBands, tickColor, formatTick, emptyLabel, showXLabels }) {
     return (
-      <svg viewBox={`0 0 ${W} ${height}`} style={{ width: '100%', height, touchAction: 'none', display: 'block' }} {...eventHandlers}>
+      <svg
+        key={axis} viewBox={`0 0 ${W} ${panelHeight}`}
+        style={{ width: '100%', height: panelHeight, touchAction: 'none', display: 'block' }}
+        {...eventHandlers}
+      >
         {scale.yOf ? (
           <>
             {scale.ticks.map(v => (
@@ -205,39 +218,60 @@ function LineChart({ lines, bands, splitAxes, onHover }) {
             )}
           </>
         ) : (
-          <text x={W / 2} y={height / 2} fill="#B5B0A8" fontSize="13" textAnchor="middle">{emptyLabel}</text>
+          <text x={W / 2} y={panelHeight / 2} fill="#B5B0A8" fontSize="13" textAnchor="middle">{emptyLabel}</text>
         )}
         {showXLabels && xTicks.map(t => (
-          <text key={`xl-${t.time}`} x={t.x} y={height - 8} fill="#B5B0A8" fontSize="10" textAnchor="middle">{t.label}</text>
+          <text key={`xl-${t.time}`} x={t.x} y={panelHeight - 8} fill="#B5B0A8" fontSize="10" textAnchor="middle">{t.label}</text>
         ))}
       </svg>
     )
   }
 
+  // Mode séparé : un panneau par type de mesure coché. La hauteur disponible est
+  // partagée entre les panneaux actifs (moins le trait de séparation quand il y en
+  // a deux) ; avec un seul type coché, le panneau restant prend toute la hauteur.
+  const activeAxes = [showTemp && 'temp', showHum && 'hum'].filter(Boolean)
+  const panelHeight = activeAxes.length === 2 ? (height - SPLIT_DIVIDER_H) / 2 : height
+
+  const panels = activeAxes.map((axis, i) => {
+    const isTemp = axis === 'temp'
+    const isLast = i === activeAxes.length - 1
+    // Seul le dernier panneau porte les libellés de l'axe X ; les autres
+    // s'arrêtent juste avant le trait de séparation.
+    const y0 = i === 0 ? SPLIT_PAD_TOP : SPLIT_PAD_INNER
+    const y1 = panelHeight - (isLast ? SPLIT_PAD_XLABELS : SPLIT_PAD_INNER)
+    return renderSplitPanel({
+      axis, panelHeight, y0, y1,
+      scale: buildScale(isTemp ? tempValues : humValues, y0, y1, isTemp ? 5 : 4),
+      panelLines: isTemp ? tempLines : humLines,
+      panelBands: isTemp ? bands : [],
+      tickColor: isTemp ? TEMP_AXIS_COLOR : HUM_AXIS_COLOR,
+      formatTick: isTemp ? (v => `${v.toFixed(1)}°`) : (v => `${Math.round(v)}%`),
+      emptyLabel: isTemp ? 'Aucune courbe de température active' : "Aucune courbe d'humidité active",
+      showXLabels: isLast,
+    })
+  })
+
   return (
     <div>
-      {renderSplitPanel({
-        height: SPLIT_TOP_H, y0: SPLIT_TOP_Y0, y1: SPLIT_TOP_Y1, scale: splitTemp,
-        panelLines: tempLines, panelBands: bands, tickColor: '#BA7517', formatTick: v => `${v.toFixed(1)}°`,
-        emptyLabel: 'Aucune courbe de température active', showXLabels: false,
-      })}
-
-      <div style={{ borderTop: '1px solid rgba(0,0,0,.06)', margin: '8px 0' }} />
-
-      {renderSplitPanel({
-        height: SPLIT_BOTTOM_H, y0: SPLIT_BOTTOM_Y0, y1: SPLIT_BOTTOM_Y1, scale: splitHum,
-        panelLines: humLines, panelBands: [], tickColor: '#1D9E75', formatTick: v => `${Math.round(v)}%`,
-        emptyLabel: "Aucune courbe d'humidité active", showXLabels: true,
-      })}
+      {panels.map((panel, i) => (
+        i === 0 ? panel : (
+          <div key={`panel-${i}`}>
+            <div style={{ borderTop: '1px solid rgba(0,0,0,.06)', margin: '8px 0' }} />
+            {panel}
+          </div>
+        )
+      ))}
     </div>
   )
 }
 
-function DistributionChart({ data }) {
+function DistributionChart({ data, height }) {
   const allValues = data.flatMap(d => d.values)
   if (allValues.length === 0) {
-    return <EmptyState message="Cochez au moins une sonde pour afficher la distribution" />
+    return <EmptyState height={height} message="Cochez au moins une sonde pour afficher la distribution" />
   }
+  const Y0 = PT, Y1 = height - PB
   const binSize = 0.5
   const globalMin = Math.floor(Math.min(...allValues) / binSize) * binSize
   const globalMax = Math.ceil(Math.max(...allValues) / binSize) * binSize
@@ -252,7 +286,7 @@ function DistributionChart({ data }) {
   const countTicks = niceTicks(0, maxCount, 4)
 
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', height: H, display: 'block' }}>
+    <svg viewBox={`0 0 ${W} ${height}`} style={{ width: '100%', height, display: 'block' }}>
       {countTicks.map(c => (
         <line key={`grid-${c}`} x1={X0} y1={yOf(c)} x2={X1} y2={yOf(c)} stroke="rgba(0,0,0,0.06)" strokeWidth="0.5" />
       ))}
@@ -265,7 +299,7 @@ function DistributionChart({ data }) {
         />
       )))}
       {tempTicks.map(v => (
-        <text key={`xl-${v}`} x={xOf(v)} y={H - 8} fill="#B5B0A8" fontSize="10" textAnchor="middle">{v.toFixed(1)}°</text>
+        <text key={`xl-${v}`} x={xOf(v)} y={height - 8} fill="#B5B0A8" fontSize="10" textAnchor="middle">{v.toFixed(1)}°</text>
       ))}
       {countTicks.map(c => (
         <text key={`yl-${c}`} x={X0 - 6} y={yOf(c) + 3.5} fill="#6B6560" fontSize="10" textAnchor="end">{Math.round(c)}</text>
@@ -274,11 +308,12 @@ function DistributionChart({ data }) {
   )
 }
 
-function ScatterChart({ data }) {
+function ScatterChart({ data, height }) {
   const allPoints = data.flatMap(d => d.points)
   if (allPoints.length === 0) {
-    return <EmptyState message="Cochez au moins une sonde pour afficher le nuage de points" />
+    return <EmptyState height={height} message="Cochez au moins une sonde pour afficher le nuage de points" />
   }
+  const Y0 = PT, Y1 = height - PB
   const temps = allPoints.map(p => p.temp)
   const hums = allPoints.map(p => p.hum)
   const minT = Math.min(...temps), maxT = Math.max(...temps)
@@ -290,7 +325,7 @@ function ScatterChart({ data }) {
   const humTicks = niceTicks(minH, maxH, 5)
 
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', height: H, display: 'block' }}>
+    <svg viewBox={`0 0 ${W} ${height}`} style={{ width: '100%', height, display: 'block' }}>
       {humTicks.map(v => (
         <line key={`grid-${v}`} x1={X0} y1={yOf(v)} x2={X1} y2={yOf(v)} stroke="rgba(0,0,0,0.06)" strokeWidth="0.5" />
       ))}
@@ -298,17 +333,26 @@ function ScatterChart({ data }) {
         <circle key={`${s.id}-${i}`} cx={xOf(p.temp)} cy={yOf(p.hum)} r="3" fill={s.color} fillOpacity="0.55" />
       )))}
       {tempTicks.map(v => (
-        <text key={`xl-${v}`} x={xOf(v)} y={H - 8} fill="#BA7517" fontSize="10" textAnchor="middle">{v.toFixed(1)}°</text>
+        <text key={`xl-${v}`} x={xOf(v)} y={height - 8} fill={TEMP_AXIS_COLOR} fontSize="10" textAnchor="middle">{v.toFixed(1)}°</text>
       ))}
       {humTicks.map(v => (
-        <text key={`yl-${v}`} x={X0 - 6} y={yOf(v) + 3.5} fill="#1D9E75" fontSize="10" textAnchor="end">{Math.round(v)}%</text>
+        <text key={`yl-${v}`} x={X0 - 6} y={yOf(v) + 3.5} fill={HUM_AXIS_COLOR} fontSize="10" textAnchor="end">{Math.round(v)}%</text>
       ))}
     </svg>
   )
 }
 
-export default function AnalyseChart({ mode, lines = [], bands = [], distributionData = [], scatterData = [], splitAxes = false, onHover }) {
-  if (mode === 'distribution') return <DistributionChart data={distributionData} />
-  if (mode === 'scatter') return <ScatterChart data={scatterData} />
-  return <LineChart lines={lines} bands={bands} splitAxes={splitAxes} onHover={onHover} />
+export default function AnalyseChart({
+  mode, lines = [], bands = [], distributionData = [], scatterData = [],
+  splitAxes = false, showTemp = true, showHum = true,
+  height = FALLBACK_CHART_HEIGHT, onHover,
+}) {
+  if (mode === 'distribution') return <DistributionChart data={distributionData} height={height} />
+  if (mode === 'scatter') return <ScatterChart data={scatterData} height={height} />
+  return (
+    <LineChart
+      lines={lines} bands={bands} splitAxes={splitAxes}
+      showTemp={showTemp} showHum={showHum} height={height} onHover={onHover}
+    />
+  )
 }

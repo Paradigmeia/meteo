@@ -1,7 +1,7 @@
 # SPEC.md — maison-temp
 
-**Version** : 1.3
-**Date** : 2026-07-04
+**Version** : 1.4
+**Date** : 2026-08-24
 **Objectif principal** : Suivre en temps réel et en historique les températures et taux d'humidité de la maison (intérieur + extérieur) via un dashboard web responsive accessible en ligne.
 
 ---
@@ -178,8 +178,8 @@ GET https://api.open-meteo.com/v1/forecast
 Vue power user accessible via icône `ti-chart-dots-3` dans le header du dashboard
 (masquée sur viewport < 768px).
 
-Permet de superposer librement sur un graphique SVG grand format (hauteur 400px,
-pleine largeur) toute combinaison de :
+Permet de superposer librement sur un graphique SVG grand format (pleine largeur,
+hauteur fluide — cf. plus bas) toute combinaison de :
 - Mesures brutes par sonde (température + humidité, 1 couleur par sonde)
 - Température Open-Meteo Ascain (comparaison modèle vs sonde réelle)
 - Moyennes glissantes 1h et 6h
@@ -197,6 +197,23 @@ séries sont actives simultanément. Absent en mode histogramme et nuage de
 points. Axe X et curseur de survol partagés entre les deux graphiques en
 mode séparé. Préférence persistée en localStorage comme les autres réglages
 de cette vue.
+
+Une section "Type de mesure" de la barre latérale filtre les courbes par axe :
+deux cases "Température" et "Humidité", cochées par défaut toutes les deux.
+Décocher un type masque toutes les courbes de cet axe, toutes catégories
+confondues (mesures brutes, moyennes glissantes, indices de confort, ΔT,
+Open-Meteo, et bande min/max qui est intrinsèquement une donnée de
+température). En mode combiné le graphique devient alors mono-axe ; en mode
+séparé le panneau correspondant disparaît entièrement. Le filtre est propre au
+mode ligne : il est masqué en histogramme et en nuage de points, dont la
+sémantique ne dépend pas de ce choix. Préférence persistée en localStorage.
+
+Le graphique a une hauteur fluide : il occupe l'espace vertical restant entre le
+haut de la carte graphique et le bas de la fenêtre, en gardant visible ce qui le
+suit (légende) et une marge basse. Plancher de 480px pour ne pas l'écraser sur
+petite fenêtre ; recalcul au redimensionnement, sans rechargement. En mode
+séparé, la hauteur disponible est partagée entre les panneaux actifs — et le
+panneau restant prend toute la hauteur si un seul type de mesure est coché.
 
 Plage temporelle : boutons rapides (12h, 24h, 7j, 30j, 90j, 1 an) +
 date pickers libres "Du / Au". Les deux mécanismes sont exclusifs.

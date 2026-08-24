@@ -1,12 +1,19 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import AnalyseChart from './AnalyseChart'
 import { useAnalyseReleves } from '../hooks/useAnalyseReleves'
 import {
   PERIOD_OPTIONS, sondeColor, METEO_COLOR, DELTA_T_COLOR,
+  TEMP_AXIS_COLOR, HUM_AXIS_COLOR,
   AVG_1H_DASH, AVG_6H_DASH, HEAT_INDEX_DASH, DEW_POINT_DASH,
   movingAverage, dailyMinMaxBand, heatIndexC, dewPointC, computeDeltaT,
   loadAnalysePrefs, saveAnalysePrefs, rangeBoundsMs,
 } from '../utils/analyseUtils'
+
+// Hauteur fluide du graphique : la carte s'étire jusqu'au bas de la fenêtre.
+// MIN_CHART_HEIGHT est la hauteur historique, conservée comme plancher pour ne
+// pas écraser le graphique sur petite fenêtre ou résolution basse.
+const CHART_BOTTOM_MARGIN = 32
+const MIN_CHART_HEIGHT = 480
 
 function toIso(datetimeLocal) {
   if (!datetimeLocal) return null
@@ -32,19 +39,25 @@ export default function AnalyseView({ sondes, meteo, onBack }) {
   const [mode, setMode] = useState(() => initialPrefs.mode ?? 'line')
   const [quickCode, setQuickCode] = useState(() => initialPrefs.quickCode ?? '24h')
   const [splitAxes, setSplitAxes] = useState(() => initialPrefs.splitAxes ?? false)
+  const [showTemp, setShowTemp] = useState(() => initialPrefs.showTemp ?? true)
+  const [showHum, setShowHum] = useState(() => initialPrefs.showHum ?? true)
 
   const [useCustomRange, setUseCustomRange] = useState(false)
   const [customFrom, setCustomFrom] = useState('')
   const [customTo, setCustomTo] = useState('')
   const [hoverInfo, setHoverInfo] = useState(null)
 
+  const mainRef = useRef(null)
+  const chartCardRef = useRef(null)
+  const [chartHeight, setChartHeight] = useState(MIN_CHART_HEIGHT)
+
   useEffect(() => {
     saveAnalysePrefs({
       checkedSondes: [...checkedSondes],
       meteoChecked, avg1h, avg6h, minMaxBand, heatIndex, dewPoint, deltaT,
-      mode, quickCode, splitAxes,
+      mode, quickCode, splitAxes, showTemp, showHum,
     })
-  }, [checkedSondes, meteoChecked, avg1h, avg6h, minMaxBand, heatIndex, dewPoint, deltaT, mode, quickCode, splitAxes])
+  }, [checkedSondes, meteoChecked, avg1h, avg6h, minMaxBand, heatIndex, dewPoint, deltaT, mode, quickCode, splitAxes, showTemp, showHum])
 
   const slugs = useMemo(() => sondes.map(s => s.slug), [sondes])
   const customRange = useCustomRange && customFrom && customTo
@@ -68,6 +81,14 @@ export default function AnalyseView({ sondes, meteo, onBack }) {
   function handleToChange(v) {
     setCustomTo(v)
     if (customFrom && v) setUseCustomRange(true)
+  }
+
+  // Le panneau de survol garde la dernière valeur survolée : on le vide en même
+  // temps que le filtre change, sinon il continuerait d'afficher des séries
+  // désormais masquées jusqu'au prochain survol.
+  function toggleMeasureType(setter, checked) {
+    setter(checked)
+    setHoverInfo(null)
   }
 
   function toggleSonde(slug) {
@@ -155,6 +176,13 @@ export default function AnalyseView({ sondes, meteo, onBack }) {
 
   const lines = [...rawLines, ...avgLines, ...comfortLines, ...deltaTLines, ...meteoLines]
 
+  // Filtre par type de mesure : masque toutes les courbes de l'axe décoché,
+  // toutes catégories confondues (brutes, moyennes glissantes, indices de
+  // confort, ΔT, Open-Meteo). La bande min/max est intrinsèquement une donnée
+  // de température, elle suit donc showTemp.
+  const visibleLines = lines.filter(l => (l.axis === 'temp' ? showTemp : showHum))
+  const visibleBands = showTemp ? bandEntries : []
+
   const distributionData = checkedList.map(s => ({
     id: s.slug, label: s.nom, color: sondeColor(s.slug),
     values: (relevesBySlug[s.slug] ?? []).filter(r => r.temperature != null).map(r => r.temperature),
@@ -171,7 +199,37 @@ export default function AnalyseView({ sondes, meteo, onBack }) {
     ? distributionData.filter(d => d.values.length).map(d => ({ id: d.id, color: d.color, label: d.label }))
     : mode === 'scatter'
       ? scatterData.filter(d => d.points.length).map(d => ({ id: d.id, color: d.color, label: d.label }))
-      : [...lines, ...bandEntries]
+      : [...visibleLines, ...visibleBands]
+
+  // Mesure l'espace vertical restant sous le haut de la carte graphique. On
+  // raisonne en coordonnées document (rect.top + scrollY) pour que la mesure ne
+  // dépende pas du défilement ; changer la hauteur du graphique ne déplace pas
+  // le haut de la carte, donc pas de boucle de rétroaction.
+  useLayoutEffect(() => {
+    function measure() {
+      const card = chartCardRef.current
+      const main = mainRef.current
+      if (!card || !main) return
+      const styles = window.getComputedStyle(card)
+      const insets = ['paddingTop', 'paddingBottom', 'borderTopWidth', 'borderBottomWidth']
+        .reduce((sum, prop) => sum + (parseFloat(styles[prop]) || 0), 0)
+      const cardRect = card.getBoundingClientRect()
+      // Ce qui suit la carte dans la colonne principale (légende, marge basse)
+      // doit rester visible : on le déduit de la hauteur disponible. Sans
+      // légende, la carte est le dernier enfant et sa marge basse se fusionne
+      // avec le bord de la colonne — on la reprend alors telle quelle.
+      const marginBottom = parseFloat(styles.marginBottom) || 0
+      const trailing = Math.max(marginBottom, main.getBoundingClientRect().bottom - cardRect.bottom)
+      const available = window.innerHeight - (cardRect.top + window.scrollY)
+        - trailing - CHART_BOTTOM_MARGIN - insets
+      setChartHeight(Math.max(MIN_CHART_HEIGHT, Math.round(available)))
+    }
+    measure()
+    window.addEventListener('resize', measure)
+    return () => window.removeEventListener('resize', measure)
+    // `mode` fait apparaître/disparaître le panneau de survol et la bascule
+    // d'axes au-dessus de la carte ; la taille de la légende change ce qui suit.
+  }, [mode, legendItems.length])
 
   return (
     <div className="analyse-container">
@@ -184,6 +242,22 @@ export default function AnalyseView({ sondes, meteo, onBack }) {
 
       <div className="analyse-layout">
         <aside className="analyse-sidebar">
+          {mode === 'line' && (
+            <div className="analyse-group">
+              <p className="section-label">Type de mesure</p>
+              <label className="analyse-check">
+                <input type="checkbox" checked={showTemp} onChange={e => toggleMeasureType(setShowTemp, e.target.checked)} />
+                <span className="analyse-swatch" style={{ background: TEMP_AXIS_COLOR }} />
+                Température
+              </label>
+              <label className="analyse-check">
+                <input type="checkbox" checked={showHum} onChange={e => toggleMeasureType(setShowHum, e.target.checked)} />
+                <span className="analyse-swatch" style={{ background: HUM_AXIS_COLOR }} />
+                Humidité
+              </label>
+            </div>
+          )}
+
           <div className="analyse-group">
             <p className="section-label">Mesures brutes par sonde</p>
             {sondes.map(s => (
@@ -258,7 +332,7 @@ export default function AnalyseView({ sondes, meteo, onBack }) {
           </div>
         </aside>
 
-        <div className="analyse-main">
+        <div className="analyse-main" ref={mainRef}>
           <div className="analyse-range">
             <div className="periods">
               {PERIOD_OPTIONS.map(p => (
@@ -314,14 +388,17 @@ export default function AnalyseView({ sondes, meteo, onBack }) {
             </div>
           )}
 
-          <div className="chart-card">
+          <div className="chart-card" ref={chartCardRef}>
             <AnalyseChart
               mode={mode}
-              lines={lines}
-              bands={bandEntries}
+              lines={visibleLines}
+              bands={visibleBands}
               distributionData={distributionData}
               scatterData={scatterData}
               splitAxes={splitAxes}
+              showTemp={showTemp}
+              showHum={showHum}
+              height={chartHeight}
               onHover={setHoverInfo}
             />
           </div>

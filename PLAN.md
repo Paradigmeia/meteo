@@ -1,8 +1,8 @@
 # PLAN.md — maison-temp
 
-**Version** : 1.3
-**Date** : 2026-07-04
-**Référence** : SPEC.md v1.3
+**Version** : 1.4
+**Date** : 2026-08-24
+**Référence** : SPEC.md v1.4
 
 ---
 
@@ -192,6 +192,33 @@ Ce que la maquette montre et que le code doit reproduire :
   L'humidité brute perd son style pointillé en mode séparé (redevient un
   trait plein, plus besoin de la distinguer visuellement de la température
   puisqu'elle est sur son propre graphique)
+
+### Décision 12 (2026-08-24)
+
+- **Contexte** : Vue Analyse — la hauteur du graphique était une constante
+  module (`H = 480` dans `AnalyseChart.jsx`), alors que la vue est desktop-only
+  et laisse souvent 200 à 400px de vide sous la carte graphique. Par ailleurs,
+  rien ne permettait de n'afficher que la température ou que l'humidité
+- **Choix** : (a) La hauteur est mesurée par `AnalyseView` (`useLayoutEffect` +
+  écouteur `resize`) et passée en prop `height` à `AnalyseChart`, qui en dérive
+  toute sa géométrie verticale ; plancher `MIN_CHART_HEIGHT = 480`.
+  (b) Nouvelle section "Type de mesure" dans la barre latérale ; le filtrage se
+  fait en amont sur `lines`/`bands` dans `AnalyseView`, `AnalyseChart` recevant
+  en plus `showTemp`/`showHum` pour savoir combien de panneaux rendre en mode
+  séparé. La hauteur d'un panneau vaut `(height - séparateur) / 2` à deux
+  panneaux, `height` à un seul
+- **Pourquoi** : Mesurer plutôt que bumper la constante — un simple `H = 700`
+  aurait cassé les résolutions basses (1366×768) et serait resté faux sur les
+  écrans hauts. Filtrer en amont plutôt que dans `AnalyseChart` garde le
+  composant de rendu ignorant des préférences utilisateur : le mode combiné
+  devient mono-axe sans aucun cas particulier, puisque l'échelle de l'axe
+  décoché se retrouve simplement vide
+- **Trade-off** : La mesure raisonne en coordonnées document
+  (`getBoundingClientRect().top + scrollY`) pour ne pas dépendre du défilement,
+  et déduit la hauteur de ce qui suit la carte (légende, marge basse) afin de ne
+  pas repousser la légende hors de l'écran. Changer la hauteur du graphique ne
+  déplaçant pas le haut de la carte, il n'y a pas de boucle de rétroaction ; un
+  `ResizeObserver` sur la carte en aurait créé une
 
 ---
 
