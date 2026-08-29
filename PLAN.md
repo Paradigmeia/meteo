@@ -1,7 +1,7 @@
 # PLAN.md — maison-temp
 
-**Version** : 1.6
-**Date** : 2026-08-24
+**Version** : 1.7
+**Date** : 2026-08-29
 **Référence** : SPEC.md v1.6
 
 ---
@@ -15,21 +15,40 @@ maison-temp/
 │   ├── database.py        # SQLite init, helpers
 │   ├── models.py          # Pydantic schemas
 │   ├── config.py          # Settings (env vars)
-│   └── requirements.txt
+│   ├── test_main.py       # Tests pytest du backend
+│   ├── requirements.txt
+│   └── requirements-dev.txt
 ├── frontend/
 │   ├── src/
 │   │   ├── App.jsx
+│   │   ├── main.jsx
+│   │   ├── App.css / index.css
+│   │   ├── meteoUtils.js              # Libellés et icônes des codes météo Open-Meteo
 │   │   ├── components/
+│   │   │   ├── Dashboard.jsx          # Écran d'accueil mobile (météo + cartes sondes)
+│   │   │   ├── Detail.jsx             # Vue détail d'une sonde (mobile)
 │   │   │   ├── MeteoCard.jsx          # Bloc météo complet (actuel + horaire + J+1)
-│   │   │   ├── HourlyStrip.jsx        # Bandeau horaire scrollable
 │   │   │   ├── SondeCard.jsx          # Card sonde temps réel
-│   │   │   ├── HistoriqueChart.jsx    # Graphique Chart.js dual-axe
+│   │   │   ├── HistoriqueChart.jsx    # Graphique SVG dual-axe (vue Détail mobile)
+│   │   │   ├── SurvolPanel.jsx        # Panneau de valeurs au survol
 │   │   │   ├── AnalyseView.jsx        # Vue Analyse complète (desktop)
 │   │   │   └── AnalyseChart.jsx       # Graphique SVG multi-courbes
-│   │   └── main.jsx
+│   │   ├── hooks/
+│   │   │   ├── useSondes.js           # Sondes + valeurs courantes (polling)
+│   │   │   ├── useReleves.js          # Relevés d'une sonde (vue Détail)
+│   │   │   ├── useAnalyseReleves.js   # Relevés multi-sondes (Vue Analyse)
+│   │   │   ├── useMeteo.js            # Météo Open-Meteo via le backend
+│   │   │   └── useIsDesktop.js        # Bascule mobile / desktop
+│   │   └── utils/
+│   │       ├── chartUtils.js          # Échelles, graduations, lissage, géométrie curseur→viewBox
+│   │       ├── chartUtils.test.js     # Tests vitest de la géométrie curseur→viewBox
+│   │       └── analyseUtils.js        # Helpers propres à la Vue Analyse
 │   ├── index.html
 │   ├── package.json
 │   └── vite.config.js
+├── scripts/
+│   ├── install.sh
+│   └── update.sh
 ├── nginx/
 │   └── maison-temp.conf
 ├── docs/
@@ -56,12 +75,14 @@ aiosqlite==0.20.0
 **Frontend (Node)**
 ```json
 {
-  "react": "^18.3.0",
-  "chart.js": "^4.4.0",
-  "react-chartjs-2": "^5.2.0",
-  "vite": "^5.4.0"
+  "react": "^19.2.6",
+  "react-dom": "^19.2.6",
+  "vite": "^8.0.12",
+  "vitest": "^4.1.11"
 }
 ```
+Les graphiques sont dessinés en SVG à la main, sans librairie (cf. décision 10).
+`vitest` est une devDependency ; `npm test` lance la suite (décision 14).
 
 ---
 
@@ -277,6 +298,43 @@ Ce que la maquette montre et que le code doit reproduire :
   `NULL` — un `NaN` se traduisait donc par une mesure perdue, pas par une ligne
   empoisonnée. C'est `±inf` qui fait l'aller-retour intact et constituait le vrai
   vecteur. Consigné par un test, l'hypothèse étant portante pour le correctif
+
+### Décision 14 (2026-08-29)
+
+- **Contexte** : la conversion « position du pointeur → abscisse dans le repère
+  du `viewBox` » existait en deux exemplaires. Celui d'`AnalyseChart` a été
+  corrigé par #29 (passage par `getScreenCTM()`), celui d'`HistoriqueChart` a
+  gardé la règle de trois sur `getBoundingClientRect()`. Duplication assumée
+  avant #29, divergence depuis : deux calculs pour un même problème, dont un
+  connu comme faux dès qu'il y a letterboxing (issue #30)
+- **Choix** : géométrie extraite dans `utils/chartUtils.js` en trois fonctions —
+  `viewBoxXFromClient` (conversion par la matrice), `viewBoxXFromRect` (son
+  équivalent arithmétique pour le `preserveAspectRatio` par défaut), et
+  `viewBoxXFromPointerEvent` qui compose les deux pour un évènement React. Les
+  deux composants consomment cette dernière
+- **Matrice d'abord, boîte en repli** : la matrice est exacte quelle que soit la
+  transformation appliquée au dessin ; le calcul par la boîte ne l'est que pour
+  le `preserveAspectRatio` par défaut, ce qui est le cas des deux graphiques. Il
+  sert quand la matrice est indisponible (svg non rendu) et rend la géométrie
+  testable sans DOM
+- **Projection écrite à la main** plutôt que déléguée à `DOMPoint` : `x' = a·x +
+  c·y + e` est la ligne utile du produit matriciel 2D. La fonction devient de
+  l'arithmétique pure, testable hors navigateur — `DOMPoint` n'existe pas sous
+  Node. Les CTM d'un `<svg>` sont toujours 2D, la perspective n'a pas à être
+  traitée
+- **Dimensions du `viewBox` lues sur l'élément** (`svg.viewBox.baseVal`) et non
+  passées par l'appelant : en mode Séparé, `AnalyseChart` attache les mêmes
+  gestionnaires à deux panneaux de hauteurs différentes — un paramètre pourrait
+  diverger de la géométrie réellement rendue, `baseVal` non
+- **Effet sur la vue Détail** : aucun aujourd'hui. `HistoriqueChart` a un
+  `viewBox` de 360 de large sous une shell capée à 390px, donc la largeur rendue
+  reste sous 360 : sans letterboxing, ancien et nouveau calcul coïncident (pinné
+  par un test). Le jour où la vue Détail s'élargit, le bug #26 ne réapparaît plus
+- **`vitest` introduit à cette occasion** : le frontend n'avait aucun runner, là
+  où le backend a `test_main.py`. La non-régression de #26 reposait entièrement
+  sur la relecture — faible pour un bug qui lui avait justement échappé. La
+  géométrie une fois pure se teste sans DOM ni jsdom, donc sans autre dépendance
+  que `vitest` lui-même
 
 ---
 

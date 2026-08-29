@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react'
-import { niceTicks, linearScale, smooth } from '../utils/chartUtils'
+import { niceTicks, linearScale, smooth, viewBoxXFromPointerEvent } from '../utils/chartUtils'
 import { getTimeTicks, histogramBins, TEMP_AXIS_COLOR, HUM_AXIS_COLOR } from '../utils/analyseUtils'
 
 const PL = 56, PR = 56, PT = 24, PB = 32
@@ -101,24 +101,15 @@ function LineChart({ lines, bands, splitAxes, showTemp, showHum, width, height, 
     return best
   }
 
-  // Convertit la position du pointeur en abscisse dans le repère du viewBox.
   // Le viewBox reprenant les dimensions mesurées de la carte, l'échelle vaut en
-  // principe 1 — mais une règle de trois sur getBoundingClientRect() resterait
-  // fragile : dès que le viewBox et la boîte divergent (mesure en retard d'une
-  // frame après un resize, arrondis sous-pixel, plancher de largeur atteint sur
-  // fenêtre étroite), le preserveAspectRatio par défaut ("xMidYMid meet") met le
-  // contenu à l'échelle et le recentre (issue #26). getScreenCTM() intègre cette
-  // transformation quelle qu'elle soit. Renvoie null si elle est indisponible —
-  // svg non rendu, ou environnement sans getScreenCTM/DOMPoint (jsdom) : mieux
-  // vaut ne pas déplacer le curseur que le poser au mauvais endroit.
+  // principe 1 — mais dès que le viewBox et la boîte divergent (mesure en retard
+  // d'une frame après un resize, arrondis sous-pixel, plancher de largeur
+  // atteint sur fenêtre étroite), le preserveAspectRatio par défaut met le
+  // contenu à l'échelle et le recentre (issue #26). La conversion partagée
+  // couvre les deux cas ; le curseur est ensuite ramené dans la zone traçable.
   function getSvgX(e) {
-    const touch = e.touches ? e.touches[0] : null
-    if (e.touches && !touch) return null
-    const ctm = typeof DOMPoint === 'undefined' ? null : e.currentTarget.getScreenCTM?.()
-    if (!ctm) return null
-    const client = new DOMPoint(touch ? touch.clientX : e.clientX, touch ? touch.clientY : e.clientY)
-    const x = client.matrixTransform(ctm.inverse()).x
-    if (!Number.isFinite(x)) return null
+    const x = viewBoxXFromPointerEvent(e)
+    if (x === null) return null
     return Math.max(curX0, Math.min(curX1, x))
   }
 
