@@ -94,9 +94,11 @@ Légende : 🔲 À faire · 🔄 En cours · ✅ Livré · ⚠️ Dette techniqu
 - `npm run lint` et `npm run build` passent ; bundle 228,4 kB → 228,6 kB (+0,2 kB,
   les commentaires ne pesant pas : c'est le repli par la boîte, seul code
   réellement ajouté)
-- **Non vérifié en navigateur** : aucun navigateur disponible sur la machine de
-  développement. Le rendu réel de la Vue Analyse à 1920px et 1280px et de la vue
-  Détail mobile reste à confirmer au déploiement
+- **Vérifié en navigateur le 2026-08-29 par Alexis, après déploiement** : la
+  ligne de repérage suit le curseur sur la Vue Analyse à 1920px et 1280px, et la
+  vue Détail mobile est inchangée. Les deux dernières cases de la DoD de l'issue
+  #30 sont closes. La vérification n'avait pas pu être faite avant le
+  déploiement, aucun navigateur n'étant installé sur la machine de développement
 - PLAN.md v1.6 → v1.7 (décision 14 ; arborescence et dépendances frontend
   remises à jour au passage — l'arborescence était restée sur un état ancien :
   `HourlyStrip.jsx` qui n'existe plus, `hooks/` et la moitié des composants
