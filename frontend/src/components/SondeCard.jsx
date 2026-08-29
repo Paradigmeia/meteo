@@ -47,7 +47,7 @@ export default function SondeCard({ sonde, fullWidth, onClick }) {
         <>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
             <span className="sonde-name" style={{ marginBottom: 0 }}>{sonde.nom}</span>
-            {offline && <Icon name="wifi-off" style={{ fontSize: 13, color: '#A32D2D' }} />}
+            {offline && <Icon name="wifi-off" label="Hors ligne" style={{ fontSize: 13, color: '#A32D2D' }} />}
           </div>
           {dr ? (
             <>

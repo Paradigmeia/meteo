@@ -1,5 +1,11 @@
-// Tracés des icônes Tabler 3.19.0 (MIT — https://github.com/tabler/tabler-icons), embarquées
-// en SVG au lieu d'être chargées depuis un CDN (issue #50). La feuille de style
+// Tracés des icônes Tabler 3.19.0, embarquées en SVG au lieu d'être chargées
+// depuis un CDN (issue #50).
+//
+//   Tabler Icons — https://github.com/tabler/tabler-icons
+//   Copyright (c) 2020-2024 Paweł Kuna
+//   Distribué sous licence MIT. La notice ci-dessus accompagne les tracés
+//   reproduits ci-dessous, comme la licence l'exige.
+// La feuille de style
 // jsdelivr pesait 238 kB et tirait une police entière pour les 15 glyphes
 // utilisés ici, sans SRI et sans que rien ne rattrape une compromission du CDN.
 //

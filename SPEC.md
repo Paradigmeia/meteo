@@ -1,7 +1,7 @@
 # SPEC.md — maison-temp
 
-**Version** : 1.6
-**Date** : 2026-08-24
+**Version** : 1.7
+**Date** : 2026-08-29
 **Objectif principal** : Suivre en temps réel et en historique les températures et taux d'humidité de la maison (intérieur + extérieur) via un dashboard web responsive accessible en ligne.
 
 ---
@@ -180,7 +180,7 @@ GET https://api.open-meteo.com/v1/forecast
 
 ### 4.6 Vue Analyse (desktop uniquement)
 
-Vue power user accessible via icône `ti-chart-dots-3` dans le header du dashboard
+Vue power user accessible via l'icône graphique (`chart-dots-3`) dans le header du dashboard
 (masquée sur viewport < 768px).
 
 Permet de superposer librement sur un graphique SVG grand format (pleine largeur,
