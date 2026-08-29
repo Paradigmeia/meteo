@@ -1,4 +1,5 @@
 import { wmoIcon, wmoLabel, windDir } from '../meteoUtils'
+import Icon from './Icon'
 
 function HourSlot({ hour, isNow }) {
   const d = new Date(hour.time)
@@ -8,7 +9,7 @@ function HourSlot({ hour, isNow }) {
   return (
     <div className={`hour-slot${isNow ? ' now' : ''}`}>
       <span className="hour-lbl">{label}</span>
-      <i className={`ti ${icon} hour-icon`} />
+      <Icon name={icon} className="hour-icon" />
       <span className="hour-temp">{Math.round(hour.temperature_2m)}°</span>
       {precip > 0
         ? <span className="hour-precip">{precip}%</span>
@@ -55,16 +56,16 @@ export default function MeteoCard({ meteo }) {
           <span className="meteo-cond">{wmoLabel(cur.weathercode)}</span>
           <div className="meteo-details">
             <span className="meteo-detail">
-              <i className="ti ti-droplet" style={{ color: '#1D9E75' }} />
+              <Icon name="droplet" style={{ color: '#1D9E75' }} />
               {cur.relative_humidity_2m}%
             </span>
             <span className="meteo-detail">
-              <i className="ti ti-wind" />
+              <Icon name="wind" />
               {Math.round(cur.wind_speed_10m)} km/h {windDir(cur.wind_direction_10m)}
             </span>
           </div>
         </div>
-        <i className={`ti ${wmoIcon(cur.weathercode)}`} style={{ fontSize: 54, color: '#EF9F27', marginTop: -4 }} />
+        <Icon name={wmoIcon(cur.weathercode)} style={{ fontSize: 54, color: '#EF9F27', marginTop: -4 }} />
       </div>
 
       <div className="hourly-strip">
@@ -75,7 +76,7 @@ export default function MeteoCard({ meteo }) {
         <div className="meteo-divider">
           <div className="tomorrow-row">
             <div className="tomorrow-left">
-              <i className={`ti ${wmoIcon(tomorrowCode)}`} style={{ fontSize: 18, color: '#378ADD' }} />
+              <Icon name={wmoIcon(tomorrowCode)} style={{ fontSize: 18, color: '#378ADD' }} />
               <span style={{ fontSize: 14 }}>
                 Demain — {Math.round(tomorrowMin)}° / {Math.round(tomorrowMax)}°
               </span>

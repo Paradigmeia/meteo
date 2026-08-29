@@ -1,8 +1,8 @@
 # PLAN.md — maison-temp
 
-**Version** : 1.7
+**Version** : 1.8
 **Date** : 2026-08-29
-**Référence** : SPEC.md v1.6
+**Référence** : SPEC.md v1.7
 
 ---
 
@@ -25,6 +25,7 @@ maison-temp/
 │   │   ├── App.css / index.css
 │   │   ├── meteoUtils.js              # Libellés et icônes des codes météo Open-Meteo
 │   │   ├── components/
+│   │   │   ├── Icon.jsx               # Rend une icône Tabler (+ Icon.test.js)
 │   │   │   ├── Dashboard.jsx          # Écran d'accueil mobile (météo + cartes sondes)
 │   │   │   ├── Detail.jsx             # Vue détail d'une sonde (mobile)
 │   │   │   ├── MeteoCard.jsx          # Bloc météo complet (actuel + horaire + J+1)
@@ -40,6 +41,7 @@ maison-temp/
 │   │   │   ├── useMeteo.js            # Météo Open-Meteo via le backend
 │   │   │   └── useIsDesktop.js        # Bascule mobile / desktop
 │   │   └── utils/
+│   │       ├── iconPaths.js           # Tracés SVG des 15 icônes Tabler embarquées
 │   │       ├── chartUtils.js          # Échelles, graduations, lissage, géométrie curseur→viewBox
 │   │       ├── chartUtils.test.js     # Tests vitest de la géométrie curseur→viewBox
 │   │       └── analyseUtils.js        # Helpers propres à la Vue Analyse
@@ -81,7 +83,9 @@ aiosqlite==0.20.0
   "vitest": "^4.1.11"
 }
 ```
-Les graphiques sont dessinés en SVG à la main, sans librairie (cf. décision 10).
+Aucune dépendance chargée depuis un CDN : les icônes sont embarquées en SVG
+(décision 15). Les graphiques sont dessinés en SVG à la main, sans librairie
+(cf. décision 10).
 `vitest` est une devDependency ; `npm test` lance la suite (décision 14).
 
 ---
@@ -335,6 +339,42 @@ Ce que la maquette montre et que le code doit reproduire :
   sur la relecture — faible pour un bug qui lui avait justement échappé. La
   géométrie une fois pure se teste sans DOM ni jsdom, donc sans autre dépendance
   que `vitest` lui-même
+
+### Décision 15 (2026-08-29)
+
+- **Contexte** : `index.html` chargeait la feuille de style `@tabler/icons-webfont`
+  depuis jsdelivr, sans `integrity` ni `crossorigin`. Une compromission du CDN
+  aurait permis d'injecter du CSS arbitraire sur tout le site, et aucune CSP ne
+  rattrapait le coup (issue #50, et #49 pour la CSP)
+- **Choix** : supprimer le CDN plutôt que le sécuriser. Les 15 glyphes utilisés
+  sont embarqués en SVG dans `utils/iconPaths.js`, tracés repris du dépôt Tabler
+  3.19.0 (MIT), et rendus par `components/Icon.jsx` — données et composant
+  séparés, un fichier de composant qui exporte autre chose qu'un composant
+  cassant le Fast Refresh de Vite
+- **Pourquoi pas SRI** : `integrity` n'aurait couvert que la feuille, pas les
+  fichiers de police qu'elle tire ensuite en relatif — SRI n'existe pas pour les
+  `url()` d'un CSS. Et la disproportion restait : 238 kB de CSS plus 865 kB de
+  woff2 — ~900 kB de transfert réel — pour quinze glyphes. Le bundle applicatif
+  entier en fait 228 non compressés
+- **Coût réel** : +3,0 kB de bundle (228,6 → 231,6 kB), contre ~900 kB qui ne
+  transitent plus, une résolution DNS et une poignée de main TLS vers un tiers en
+  moins au chargement, et les deux exceptions `cdn.jsdelivr.net` de la CSP de #49
+  qui disparaissent — celle-ci se réduit à `'self'`. Le trafic évité se compte en
+  transfert réel : jsdelivr sert la feuille en gzip (38 kB, non 238), le woff2 de
+  865 kB étant déjà compressé
+- **Rendu en `1em` et `currentColor`** : le composant reprend le comportement
+  d'un glyphe de police, donc les `style={{ fontSize, color }}` déjà écrits dans
+  les composants et la règle `.hour-icon` d'App.css continuent de s'appliquer
+  sans être touchés. Seul ajout CSS : `.icon { vertical-align: -0.1em }`, un
+  `<svg>` inline ne se posant pas sur la ligne de base comme un glyphe — valeur
+  dérivée du descent de la police remplacée (100/1000 em), pas une heuristique
+- **Bug découvert au passage** : `ti-cloud-sun` et `ti-cloud-drizzle` n'existent
+  pas dans Tabler 3.19.0. « Partiellement nuageux » (WMO 2) et « Bruine »
+  (51/53/55) n'affichaient donc **aucune icône** en production, sans erreur
+  console ni trace serveur. Remplacés par `haze` et `droplets`. Un nom d'icône
+  qui ne résout rien étant silencieux par nature, `Icon.test.js` vérifie
+  désormais que tout nom référencé existe, et qu'aucune icône n'est embarquée
+  sans être utilisée
 
 ---
 

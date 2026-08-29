@@ -28,6 +28,10 @@
 .hour-slot.now .hour-lbl { color: #BA7517; font-weight: 500; }
 .hour-slot.now .hour-temp { color: #BA7517; font-weight: 500; }
 .hour-lbl { font-size: 11px; color: #8C8880; }
+/* La police remplacée avait un descent de 100/1000 em : sa boîte allait de
+   -0.1em à 0.9em. Un <svg> de 1em posé sur la ligne de base occupe la même
+   boîte avec ce décalage — valeur dérivée de la police, pas heuristique. */
+.icon { vertical-align: -0.1em; }
 .hour-icon { font-size: 20px; }
 .hour-temp { font-size: 14px; font-weight: 400; }
 .hour-precip { font-size: 11px; color: #378ADD; }

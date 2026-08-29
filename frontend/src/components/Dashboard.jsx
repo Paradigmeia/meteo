@@ -1,6 +1,7 @@
 import MeteoCard from './MeteoCard'
 import SondeCard from './SondeCard'
 import { useIsDesktop } from '../hooks/useIsDesktop'
+import Icon from './Icon'
 
 export default function Dashboard({ sondes, meteo, onSelectSonde, onOpenAnalyse }) {
   const isDesktop = useIsDesktop()
@@ -25,10 +26,10 @@ export default function Dashboard({ sondes, meteo, onSelectSonde, onOpenAnalyse 
         <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
           {isDesktop && (
             <button className="analyse-btn" onClick={onOpenAnalyse} aria-label="Vue Analyse">
-              <i className="ti ti-chart-dots-3" style={{ fontSize: 22, color: '#B5B0A8' }} />
+              <Icon name="chart-dots-3" style={{ fontSize: 22, color: '#B5B0A8' }} />
             </button>
           )}
-          <i className="ti ti-home-2" style={{ fontSize: 24, color: '#B5B0A8' }} />
+          <Icon name="home-2" style={{ fontSize: 24, color: '#B5B0A8' }} />
         </div>
       </div>
 

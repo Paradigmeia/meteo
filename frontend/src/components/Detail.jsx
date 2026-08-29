@@ -3,6 +3,7 @@ import { useReleves } from '../hooks/useReleves'
 import HistoriqueChart from './HistoriqueChart'
 import SurvolPanel from './SurvolPanel'
 import { formatAgo } from '../meteoUtils'
+import Icon from './Icon'
 
 const PERIODS = ['12h', '24h', '7d', '30d']
 
@@ -22,7 +23,7 @@ export default function Detail({ slug, nom, onBack }) {
   return (
     <>
       <button className="back-btn" onClick={onBack}>
-        <i className="ti ti-arrow-left" />
+        <Icon name="arrow-left" />
         Retour
       </button>
 

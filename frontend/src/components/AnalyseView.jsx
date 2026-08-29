@@ -7,6 +7,7 @@ import {
   movingAverage, dailyMinMaxBand,
   loadAnalysePrefs, saveAnalysePrefs, rangeBoundsMs,
 } from '../utils/analyseUtils'
+import Icon from './Icon'
 
 // Dimensions fluides du graphique : le viewBox SVG reprend les dimensions
 // mesurées de la carte, qui s'étire jusqu'au bas de la fenêtre.
@@ -208,7 +209,7 @@ export default function AnalyseView({ sondes, meteo, onBack }) {
   return (
     <div className="analyse-container">
       <button className="back-btn" onClick={onBack}>
-        <i className="ti ti-arrow-left" />
+        <Icon name="arrow-left" />
         Retour
       </button>
 
@@ -350,7 +351,7 @@ export default function AnalyseView({ sondes, meteo, onBack }) {
 
           {relevesFailed && (
             <div className="analyse-error" role="status">
-              <i className="ti ti-alert-triangle" />
+              <Icon name="alert-triangle" />
               Certaines données n'ont pas pu être chargées — l'affichage peut
               dater. Nouvelle tentative automatique toutes les 30 secondes.
             </div>

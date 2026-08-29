@@ -28,6 +28,64 @@ Légende : 🔲 À faire · 🔄 En cours · ✅ Livré · ⚠️ Dette techniqu
 
 ## Changelog
 
+### 2026-08-29 — Issue #50 : icônes embarquées en SVG, CDN supprimé
+
+- **Cause** : `index.html` chargeait `@tabler/icons-webfont` depuis jsdelivr sans
+  `integrity` ni `crossorigin`. Une compromission du CDN aurait injecté du CSS
+  arbitraire sur tout le site, sans CSP pour rattraper (cf. #49)
+- **`utils/iconPaths.js` + `components/Icon.jsx`** : les 15 glyphes utilisés sont
+  embarqués en SVG, tracés repris
+  du dépôt Tabler 3.19.0 (MIT). Rendu en `1em` et `currentColor`, donc les
+  `style={{ fontSize, color }}` des composants et la règle `.hour-icon`
+  continuent de s'appliquer sans modification. Seul ajout CSS :
+  `.icon { vertical-align: -0.1em }`, valeur du descent de la police remplacée
+- **SRI écarté** : `integrity` n'aurait couvert que la feuille, pas les polices
+  qu'elle tire en relatif. Et la disproportion demeurait : 238 kB de CSS + 865 kB
+  de woff2 — ~900 kB de transfert réel, la feuille étant servie en gzip — pour
+  quinze glyphes, quand le bundle applicatif
+  entier en fait 228
+- **Bilan** : bundle 228,6 → 231,6 kB (+3,0 kB), contre ~900 kB qui ne transitent
+  plus et une résolution DNS + poignée de main TLS vers un tiers en moins
+- **Bug corrigé au passage** : `ti-cloud-sun` et `ti-cloud-drizzle` **n'existent
+  pas** dans Tabler 3.19.0. « Partiellement nuageux » (WMO 2) et « Bruine »
+  (51/53/55) n'affichaient donc aucune icône en production — silencieusement, un
+  glyphe absent ne produisant ni erreur console ni trace serveur. Le défaut n'est
+  apparu qu'en cherchant les SVG correspondants. Remplacés par `haze` et
+  `droplets`, choisis pour rester distincts de `sun` (« Ciel dégagé ») et
+  `cloud-rain` (« Pluie »)
+- **`utils/iconNames.test.js`** : 5 tests fermant cette classe de bug — tout nom référencé
+  par `WMO_ICONS`, par le repli des codes inconnus ou littéralement dans un
+  composant doit exister, et aucune icône ne doit être embarquée sans usage.
+  Un tracé vide ou tronqué étant aussi silencieux qu'un nom fantôme, la forme des
+  tracés est vérifiée aussi. Sept mutations appliquées isolément, toutes tuées
+  (tests en échec entre parenthèses) : réintroduire `cloud-sun` (2) · retirer une
+  icône utilisée (1) · en embarquer une inutilisée (1) · nom fautif dans un
+  composant (2) · tracé vide (1) · tracé tronqué, `M` initial perdu (1) · appel
+  `<Icon>` écrit d'une façon que la regex ne voit plus (1)
+- 22 tests au total. `npm run lint` passe sans avertissement, `npm run build` aussi
+- **Non vérifié en navigateur** : l'alignement vertical des icônes
+  (`vertical-align: -0.1em` reprend le descent de la police remplacée) et
+  les deux nouveaux glyphes météo demandent un coup d'œil après déploiement
+- **Corrections après review adversariale** (PR #51) : `Icon.test.js` ne testait
+  pas `Icon.jsx` — un `return null` inconditionnel laissait la suite verte —, ne
+  parcourait que `src/components/`, et ne vérifiait que l'existence des noms, pas
+  celle des tracés : un tracé vide est aussi silencieux qu'un nom fantôme.
+  Renommé `utils/iconNames.test.js`, pour que son nom ne promette plus le rendu
+  qu'il ne teste pas ; parcours élargi à `src/` ; vérification de forme des
+  tracés ajoutée ; borne du nombre d'usages rendue auto-entretenue (littéraux +
+  calculés = total des `<Icon`), l'ancienne pouvant devenir verte et vide.
+  Notice de copyright Tabler ajoutée, la licence MIT l'exigeant. `aria-hidden`
+  n'est plus figé dans le composant : une prop `label` permet de nommer une icône
+  qui porte seule une information, appliquée au badge hors ligne de la variante
+  grille de `SondeCard` — la variante pleine largeur a le texte « Hors ligne », la
+  grille ne l'avait pas. Défaut préexistant : la police remplacée n'était pas
+  annonçable non plus
+- Chiffre réseau corrigé de ~1,1 Mo à ~900 kB : les 238 kB de CSS sont
+  la taille non compressée, jsdelivr la sert en gzip (38 kB). Le woff2 de 865 kB,
+  lui, est déjà compressé — c'est la police qui pèse, la conclusion ne change pas
+- PLAN.md v1.7 → v1.8 (décision 15). SPEC.md v1.6 → v1.7 : §4.6 nommait l'icône
+  `ti-chart-dots-3`, classe qui n'existe plus nulle part depuis cette PR
+
 ### 2026-08-29 — Déploiement : le script de mise à jour se relance après le pull
 
 - **Cause** : `scripts/update.sh` fait son `git pull` puis continue de s'exécuter,
