@@ -28,6 +28,39 @@ Légende : 🔲 À faire · 🔄 En cours · ✅ Livré · ⚠️ Dette techniqu
 
 ## Changelog
 
+### 2026-08-29 — Issue #49 : CSP et en-têtes de sécurité
+
+- **`nginx/maison-temp.conf`** : ajout de `Content-Security-Policy`,
+  `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`,
+  `X-Frame-Options: DENY`, et `includeSubDomains` sur le `Strict-Transport-Security`
+  existant
+- **Politique `'self'` partout**, rendue possible par la PR #51 qui a supprimé la
+  dernière ressource tierce. Seule exception : `style-src-attr 'unsafe-inline'`,
+  les composants React posant des attributs `style` (43 occurrences) dont les
+  graphiques SVG dépendent pour leurs dimensions calculées
+- **Triplet `style-src` / `-elem` / `-attr`** plutôt que la seule directive
+  granulaire : un navigateur qui ignore `style-src-attr` retombe sur `style-src`,
+  permissif pour les deux cas, et l'application s'affiche quand même ; un
+  navigateur récent applique `-elem 'self'` et refuse toute balise `<style>`
+  injectée
+- **Piège `add_header` consigné dans le fichier** : il n'est pas cumulatif dans
+  nginx, un `add_header` dans un `location` annule tous ceux hérités du `server`
+- **Vérifié sans toucher la production** : configuration lancée dans une instance
+  nginx de test sur port haut avec certificat auto-signé — `nginx -t` passe, et
+  les six en-têtes sont relevés sur `/` comme sur `/api/`, ce qui confirme
+  l'héritage. Vérifié aussi que Cloudflare n'injecte aucun script dans la page
+  (`cdn-cgi`, Rocket Loader) et ne pose pas de CSP concurrente qui s'intersecterait
+- **Ce que ça vaut, honnêtement** : peu de chose aujourd'hui. Sans authentification
+  et avec des températures pour seul contenu, il n'y a ni session à voler ni action
+  privilégiée à déclencher. L'intérêt est d'être le filet d'une ressource tierce
+  compromise, et de rendre sûre par défaut l'authentification prévue en v2
+- **Déploiement manuel** : `update.sh` ne déploie pas la conf nginx, seul
+  `install.sh` le fait. Après merge :
+  `sudo cp nginx/maison-temp.conf /etc/nginx/sites-available/maison-temp && sudo nginx -t && sudo systemctl reload nginx`
+- **Non vérifié en navigateur** : aucune violation CSP ne peut être constatée sans
+  navigateur. À regarder console ouverte après reload nginx, sur les trois vues
+- PLAN.md v1.8 → v1.9 (décision 16). SPEC.md inchangée : aucun effet fonctionnel
+
 ### 2026-08-29 — Issue #50 : icônes embarquées en SVG, CDN supprimé
 
 - **Cause** : `index.html` chargeait `@tabler/icons-webfont` depuis jsdelivr sans

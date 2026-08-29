@@ -1,6 +1,6 @@
 # PLAN.md — maison-temp
 
-**Version** : 1.8
+**Version** : 1.9
 **Date** : 2026-08-29
 **Référence** : SPEC.md v1.7
 
@@ -375,6 +375,46 @@ Ce que la maquette montre et que le code doit reproduire :
   qui ne résout rien étant silencieux par nature, `Icon.test.js` vérifie
   désormais que tout nom référencé existe, et qu'aucune icône n'est embarquée
   sans être utilisée
+
+### Décision 16 (2026-08-29)
+
+- **Contexte** : le site ne servait que `X-Robots-Tag` et un `Strict-Transport-Security`
+  sans `includeSubDomains`. Ni CSP, ni `X-Content-Type-Options`, ni
+  `Referrer-Policy`, ni protection contre l'inclusion en iframe (issue #49)
+- **Ce que ça vaut ici** : peu de chose aujourd'hui, et c'est assumé. Le
+  dashboard n'a pas d'authentification et n'affiche que des températures : pas de
+  session à voler, pas d'action privilégiée à déclencher. L'intérêt est d'être le
+  filet qui rattraperait une ressource tierce compromise, et de rendre sûre par
+  défaut l'authentification prévue en v2 plutôt que de la sécuriser après coup
+- **Politique** : `'self'` partout, rendu possible par la PR #51 qui a supprimé
+  la dernière ressource tierce. Plus `frame-ancestors 'none'`, `base-uri 'none'`,
+  `form-action 'none'`, `object-src 'none'`
+- **La seule exception est `style-src-attr 'unsafe-inline'`** : les composants
+  React posent des attributs `style` (`style={{ … }}`, 43 occurrences), que
+  `style-src` bloquerait — les graphiques SVG en dépendent pour leurs dimensions
+  calculées et leur `touchAction`. S'en passer supposerait de déplacer ces styles
+  vers `App.css`, ce qui n'est pas possible pour les valeurs calculées à
+  l'exécution
+- **Triplet `style-src` / `-elem` / `-attr`** plutôt que la seule directive
+  granulaire : un navigateur qui ignore `style-src-attr` retombe sur `style-src`,
+  écrit permissif pour les deux cas, et l'application continue de s'afficher ; un
+  navigateur récent applique `-elem 'self'`, donc aucune balise `<style>`
+  injectée ne passe. La dégradation est propre dans les deux sens
+- **`X-Frame-Options` en plus de `frame-ancestors`** : double emploi assumé, pour
+  les navigateurs qui ignorent CSP niveau 2
+- **Piège nginx consigné dans le fichier** : `add_header` n'est pas cumulatif. Un
+  `add_header` posé dans un bloc `location` annule **tous** ceux hérités du bloc
+  `server`. Aucun `location` n'en pose aujourd'hui, mais le jour où l'un le fera,
+  la CSP disparaîtra silencieusement de ces réponses
+- **Vérifié sans toucher la production** : la configuration a été lancée dans une
+  instance nginx de test sur un port haut, certificat auto-signé, et les six
+  en-têtes ont été relevés sur `/` comme sur `/api/` (héritage confirmé).
+  Vérifié aussi que Cloudflare, devant ce site, n'injecte aucun script
+  (`cdn-cgi`, Rocket Loader) et ne pose pas de CSP concurrente — deux CSP
+  s'intersectent, ce qui produit des blocages difficiles à diagnostiquer
+- **Déploiement manuel** : `scripts/update.sh` ne déploie pas la configuration
+  nginx, seul `install.sh` le fait. Après merge :
+  `sudo cp nginx/maison-temp.conf /etc/nginx/sites-available/maison-temp && sudo nginx -t && sudo systemctl reload nginx`
 
 ---
 
