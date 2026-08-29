@@ -389,17 +389,26 @@ Ce que la maquette montre et que le code doit reproduire :
 - **Politique** : `'self'` partout, rendu possible par la PR #51 qui a supprimé
   la dernière ressource tierce. Plus `frame-ancestors 'none'`, `base-uri 'none'`,
   `form-action 'none'`, `object-src 'none'`
-- **La seule exception est `style-src-attr 'unsafe-inline'`** : les composants
-  React posent des attributs `style` (`style={{ … }}`, 43 occurrences), que
-  `style-src` bloquerait — les graphiques SVG en dépendent pour leurs dimensions
-  calculées et leur `touchAction`. S'en passer supposerait de déplacer ces styles
-  vers `App.css`, ce qui n'est pas possible pour les valeurs calculées à
-  l'exécution
-- **Triplet `style-src` / `-elem` / `-attr`** plutôt que la seule directive
-  granulaire : un navigateur qui ignore `style-src-attr` retombe sur `style-src`,
-  écrit permissif pour les deux cas, et l'application continue de s'afficher ; un
-  navigateur récent applique `-elem 'self'`, donc aucune balise `<style>`
-  injectée ne passe. La dégradation est propre dans les deux sens
+- **Aucune exception**, contrairement à ce que l'issue #49 annonçait. Elle
+  supposait qu'il faudrait `style-src-attr 'unsafe-inline'` pour les 43
+  `style={{ … }}` des composants. C'est faux : React applique ces styles par le
+  CSSOM (`style.setProperty`), pas par `setAttribute('style', …)`. L'attribut
+  apparaît dans le DOM mais n'a jamais été « posé », et la CSP ne contrôle que la
+  pose. Vérifié sous Chromium avec la politique la plus stricte : les trois vues
+  s'affichent, `display: flex` et `font-size: 22px` inline s'appliquent, zéro
+  violation. Le `'unsafe-inline'` initialement prévu était donc gratuit — et
+  c'était la seule ouverture de toute la politique
+- **Piège en aval, `img-src` sans `data:`** : Vite inline en data-URI tout asset
+  importé de moins de 4 ko (`assetsInlineLimit`). La première image légère
+  ajoutée serait bloquée sans qu'aucune URL n'apparaisse dans le code source
+- **`form-action 'none'` et la v2** : la directive ne retombe pas sur
+  `default-src`. L'authentification prévue en v2 — l'argument qui justifie cette
+  décision — devra l'assouplir si elle passe par un `<form method="post">`
+  plutôt que par `fetch`
+- **Effet de bord de `nosniff`** : `try_files` renvoie `index.html` en 200
+  `text/html` pour tout asset manquant. Le navigateur refuse désormais de
+  l'exécuter au lieu d'échouer sur une erreur de syntaxe — plus lisible, mais le
+  message change en cas de cache portant un `index.html` périmé
 - **`X-Frame-Options` en plus de `frame-ancestors`** : double emploi assumé, pour
   les navigateurs qui ignorent CSP niveau 2
 - **Piège nginx consigné dans le fichier** : `add_header` n'est pas cumulatif. Un
@@ -407,14 +416,18 @@ Ce que la maquette montre et que le code doit reproduire :
   `server`. Aucun `location` n'en pose aujourd'hui, mais le jour où l'un le fera,
   la CSP disparaîtra silencieusement de ces réponses
 - **Vérifié sans toucher la production** : la configuration a été lancée dans une
-  instance nginx de test sur un port haut, certificat auto-signé, et les six
-  en-têtes ont été relevés sur `/` comme sur `/api/` (héritage confirmé).
+  instance nginx de test sur un port haut, certificat auto-signé, servant le vrai
+  `dist/`. Les six en-têtes relevés sur `/` comme sur `/api/` (héritage confirmé),
+  puis les trois vues parcourues sous Chromium (Playwright) — zéro violation CSP,
+  zéro erreur console, zéro requête échouée, 31 icônes rendues aux bonnes tailles.
   Vérifié aussi que Cloudflare, devant ce site, n'injecte aucun script
   (`cdn-cgi`, Rocket Loader) et ne pose pas de CSP concurrente — deux CSP
   s'intersectent, ce qui produit des blocages difficiles à diagnostiquer
 - **Déploiement manuel** : `scripts/update.sh` ne déploie pas la configuration
   nginx, seul `install.sh` le fait. Après merge :
-  `sudo cp nginx/maison-temp.conf /etc/nginx/sites-available/maison-temp && sudo nginx -t && sudo systemctl reload nginx`
+  `cd /home/debian/meteo && git pull origin main` (le checkout de production n'a
+  pas encore le fichier), puis
+  `sudo cp /home/debian/meteo/nginx/maison-temp.conf /etc/nginx/sites-available/maison-temp && sudo nginx -t && sudo systemctl reload nginx`
 
 ---
 
