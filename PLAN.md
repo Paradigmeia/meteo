@@ -1,6 +1,6 @@
 # PLAN.md — maison-temp
 
-**Version** : 1.8
+**Version** : 1.9
 **Date** : 2026-08-29
 **Référence** : SPEC.md v1.7
 
@@ -375,6 +375,59 @@ Ce que la maquette montre et que le code doit reproduire :
   qui ne résout rien étant silencieux par nature, `Icon.test.js` vérifie
   désormais que tout nom référencé existe, et qu'aucune icône n'est embarquée
   sans être utilisée
+
+### Décision 16 (2026-08-29)
+
+- **Contexte** : le site ne servait que `X-Robots-Tag` et un `Strict-Transport-Security`
+  sans `includeSubDomains`. Ni CSP, ni `X-Content-Type-Options`, ni
+  `Referrer-Policy`, ni protection contre l'inclusion en iframe (issue #49)
+- **Ce que ça vaut ici** : peu de chose aujourd'hui, et c'est assumé. Le
+  dashboard n'a pas d'authentification et n'affiche que des températures : pas de
+  session à voler, pas d'action privilégiée à déclencher. L'intérêt est d'être le
+  filet qui rattraperait une ressource tierce compromise, et de rendre sûre par
+  défaut l'authentification prévue en v2 plutôt que de la sécuriser après coup
+- **Politique** : `'self'` partout, rendu possible par la PR #51 qui a supprimé
+  la dernière ressource tierce. Plus `frame-ancestors 'none'`, `base-uri 'none'`,
+  `form-action 'none'`, `object-src 'none'`
+- **Aucune exception**, contrairement à ce que l'issue #49 annonçait. Elle
+  supposait qu'il faudrait `style-src-attr 'unsafe-inline'` pour les 43
+  `style={{ … }}` des composants. C'est faux : React applique ces styles par le
+  CSSOM (`style.setProperty`), pas par `setAttribute('style', …)`. L'attribut
+  apparaît dans le DOM mais n'a jamais été « posé », et la CSP ne contrôle que la
+  pose. Vérifié sous Chromium avec la politique la plus stricte : les trois vues
+  s'affichent, `display: flex` et `font-size: 22px` inline s'appliquent, zéro
+  violation. Le `'unsafe-inline'` initialement prévu était donc gratuit — et
+  c'était la seule ouverture de toute la politique
+- **Piège en aval, `img-src` sans `data:`** : Vite inline en data-URI tout asset
+  importé de moins de 4 ko (`assetsInlineLimit`). La première image légère
+  ajoutée serait bloquée sans qu'aucune URL n'apparaisse dans le code source
+- **`form-action 'none'` et la v2** : la directive ne retombe pas sur
+  `default-src`. L'authentification prévue en v2 — l'argument qui justifie cette
+  décision — devra l'assouplir si elle passe par un `<form method="post">`
+  plutôt que par `fetch`
+- **Effet de bord de `nosniff`** : `try_files` renvoie `index.html` en 200
+  `text/html` pour tout asset manquant. Le navigateur refuse désormais de
+  l'exécuter au lieu d'échouer sur une erreur de syntaxe — plus lisible, mais le
+  message change en cas de cache portant un `index.html` périmé
+- **`X-Frame-Options` en plus de `frame-ancestors`** : double emploi assumé, pour
+  les navigateurs qui ignorent CSP niveau 2
+- **Piège nginx consigné dans le fichier** : `add_header` n'est pas cumulatif. Un
+  `add_header` posé dans un bloc `location` annule **tous** ceux hérités du bloc
+  `server`. Aucun `location` n'en pose aujourd'hui, mais le jour où l'un le fera,
+  la CSP disparaîtra silencieusement de ces réponses
+- **Vérifié sans toucher la production** : la configuration a été lancée dans une
+  instance nginx de test sur un port haut, certificat auto-signé, servant le vrai
+  `dist/`. Les six en-têtes relevés sur `/` comme sur `/api/` (héritage confirmé),
+  puis les trois vues parcourues sous Chromium (Playwright) — zéro violation CSP,
+  zéro erreur console, zéro requête échouée, 31 icônes rendues aux bonnes tailles.
+  Vérifié aussi que Cloudflare, devant ce site, n'injecte aucun script
+  (`cdn-cgi`, Rocket Loader) et ne pose pas de CSP concurrente — deux CSP
+  s'intersectent, ce qui produit des blocages difficiles à diagnostiquer
+- **Déploiement manuel** : `scripts/update.sh` ne déploie pas la configuration
+  nginx, seul `install.sh` le fait. Après merge :
+  `cd /home/debian/meteo && git pull origin main` (le checkout de production n'a
+  pas encore le fichier), puis
+  `sudo cp /home/debian/meteo/nginx/maison-temp.conf /etc/nginx/sites-available/maison-temp && sudo nginx -t && sudo systemctl reload nginx`
 
 ---
 
