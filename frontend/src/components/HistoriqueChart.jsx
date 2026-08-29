@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react'
-import { niceTicks, linearScale, smooth, getXTicks } from '../utils/chartUtils'
+import { niceTicks, linearScale, smooth, getXTicks, viewBoxXFromPointerEvent } from '../utils/chartUtils'
 
 const W = 360, H = 200
 const PL = 36, PR = 36, PT = 20, PB = 20
@@ -73,14 +73,13 @@ export default function HistoriqueChart({ releves, period, onHover }) {
     return best
   }
 
-  function getSvgX(e) {
-    const rect = e.currentTarget.getBoundingClientRect()
-    const clientX = e.touches ? e.touches[0].clientX : e.clientX
-    return ((clientX - rect.left) / rect.width) * W
-  }
-
   function updateTooltip(e) {
-    const svgX = getSvgX(e)
+    // Conversion partagée avec AnalyseChart (issue #30). Ici le rendu remplit
+    // exactement la largeur — la shell est capée sous W — donc le résultat est
+    // le même que l'ancienne règle de trois ; il le restera si la vue Détail
+    // s'élargit un jour au-delà de W, où celle-ci devenait fausse (issue #26).
+    const svgX = viewBoxXFromPointerEvent(e)
+    if (svgX === null) return
     const anchor = findClosestIn(releves, svgX)
     if (!anchor) return
     // Température et humidité sont cherchées indépendamment : un même relevé peut

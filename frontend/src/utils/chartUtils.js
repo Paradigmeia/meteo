@@ -90,3 +90,56 @@ export function getXTicks(releves, period, xStart, xEnd) {
 
   return ticks
 }
+
+// --- Géométrie curseur → viewBox -------------------------------------------
+// Convertit l'abscisse client d'un pointeur en abscisse dans le repère du
+// viewBox d'un <svg>. Partagé par AnalyseChart et HistoriqueChart : avant
+// l'issue #30 chacun avait sa version, dont une fausse dès qu'il y a
+// letterboxing (issue #26).
+
+// Conversion exacte par la matrice écran→viewBox du <svg>. Elle intègre toute
+// transformation appliquée au dessin — mise à l'échelle du preserveAspectRatio,
+// recentrage, transformations CSS d'un ancêtre. La projection est écrite à la
+// main (x' = a·x + c·y + e, la ligne d'un produit matriciel 2D) plutôt que
+// déléguée à DOMPoint : la fonction reste ainsi de l'arithmétique testable hors
+// navigateur. Renvoie null si la matrice est indisponible (svg non rendu) ou
+// non inversible — inverse() rend alors une matrice de NaN.
+export function viewBoxXFromClient(clientX, clientY, ctm) {
+  const inverse = ctm?.inverse?.()
+  if (!inverse) return null
+  const x = inverse.a * clientX + inverse.c * clientY + inverse.e
+  return Number.isFinite(x) ? x : null
+}
+
+// Équivalent arithmétique du calcul ci-dessus pour le preserveAspectRatio par
+// défaut ("xMidYMid meet") : le contenu est mis à l'échelle du plus petit des
+// deux rapports, puis centré dans la boîte. Sert de repli quand la matrice est
+// indisponible, et rend la géométrie testable sans DOM. Renvoie null si la
+// boîte est dégénérée (svg non affiché, environnement sans layout).
+export function viewBoxXFromRect(clientX, rect, viewBoxWidth, viewBoxHeight) {
+  if (!rect) return null
+  const scale = Math.min(rect.width / viewBoxWidth, rect.height / viewBoxHeight)
+  const x = (clientX - rect.left - (rect.width - viewBoxWidth * scale) / 2) / scale
+  // Une échelle nulle — boîte de taille zéro (svg non affiché, environnement
+  // sans layout) ou viewBox dégénéré — rend x non fini : pas d'abscisse à tirer.
+  return Number.isFinite(x) ? x : null
+}
+
+// Composition des deux pour un évènement souris ou tactile React sur un <svg>.
+// Les dimensions du viewBox sont lues sur l'élément lui-même plutôt que passées
+// par l'appelant : elles ne peuvent pas diverger de celles réellement rendues
+// (AnalyseChart en mode Séparé attache les mêmes gestionnaires à deux panneaux
+// de hauteurs différentes). Renvoie null si la position n'est pas calculable —
+// mieux vaut ne pas déplacer le curseur que le poser au mauvais endroit.
+export function viewBoxXFromPointerEvent(event) {
+  const source = event.touches ? event.touches[0] : event
+  if (!source) return null
+  const svg = event.currentTarget
+  const fromCtm = viewBoxXFromClient(source.clientX, source.clientY, svg.getScreenCTM?.())
+  if (fromCtm !== null) return fromCtm
+
+  const viewBox = svg.viewBox?.baseVal
+  if (!viewBox) return null
+  const x = viewBoxXFromRect(source.clientX, svg.getBoundingClientRect(), viewBox.width, viewBox.height)
+  return x === null ? null : x + viewBox.x
+}

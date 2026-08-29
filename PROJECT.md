@@ -28,6 +28,46 @@ Légende : 🔲 À faire · 🔄 En cours · ✅ Livré · ⚠️ Dette techniqu
 
 ## Changelog
 
+### 2026-08-29 — Issue #30 : géométrie curseur→viewBox partagée + runner de test frontend
+
+- **`chartUtils.js`** : la conversion « position du pointeur → abscisse dans le
+  repère du `viewBox` » est extraite en trois fonctions —
+  `viewBoxXFromClient(clientX, clientY, ctm)` (conversion par la matrice
+  écran→viewBox), `viewBoxXFromRect(clientX, rect, vbW, vbH)` (son équivalent
+  arithmétique pour le `preserveAspectRatio` par défaut) et
+  `viewBoxXFromPointerEvent(event)` qui compose les deux pour un évènement souris
+  ou tactile. La matrice d'abord, la boîte en repli quand elle est indisponible
+- **`AnalyseChart.jsx` / `HistoriqueChart.jsx`** : les deux `getSvgX` locaux
+  disparaissent au profit du helper partagé. `AnalyseChart` garde son écrêtage
+  du curseur dans la zone traçable, `HistoriqueChart` gagne la garde `null`
+  qu'imposait déjà l'autre
+- **La projection est écrite à la main** (`x' = a·x + c·y + e`) au lieu de
+  passer par `DOMPoint` : `DOMPoint` n'existe pas sous Node, et la ligne utile
+  du produit matriciel 2D tient sur une expression. La fonction devient pure et
+  testable hors navigateur — c'était le point qui rendait l'ancien code
+  intestable, pas la duplication
+- **Les dimensions du `viewBox` sont lues sur l'élément** (`svg.viewBox.baseVal`)
+  plutôt que passées en paramètre : en mode Séparé les mêmes gestionnaires sont
+  attachés à deux panneaux de hauteurs différentes, un paramètre pourrait
+  diverger de la géométrie rendue
+- **Vue Détail inchangée** : `viewBox` de 360 de large sous une shell capée à
+  390px → pas de letterboxing, ancien et nouveau calcul coïncident. Pinné par un
+  test qui compare les deux formules sur quatre largeurs de boîte, et par son
+  pendant qui montre la divergence au-delà de 360px (le bug #26 qui reviendrait)
+- **`vitest` introduit** (devDependency, script `npm test`) : le frontend n'avait
+  aucun runner. 15 tests dans `chartUtils.test.js`, sans DOM ni jsdom. Chaque
+  garde-fou a été neutralisé isolément pour vérifier qu'au moins un test tombe :
+  règle de trois d'origine 5 échecs, matrice ignorée 2, garde des non-finis 1,
+  `viewBox` figé 1, point tactile ignoré 1
+- `npm run lint` et `npm run build` passent ; bundle 228,4 kB → 228,6 kB (+0,2 kB,
+  les commentaires ne pesant pas : c'est le repli par la boîte, seul code
+  réellement ajouté)
+- **Non vérifié en navigateur** : aucun navigateur disponible sur la machine de
+  développement. Le rendu réel de la Vue Analyse à 1920px et 1280px et de la vue
+  Détail mobile reste à confirmer au déploiement
+- PLAN.md v1.6 → v1.7 (décision 14 ; arborescence et dépendances frontend
+  remises à jour au passage). SPEC.md inchangée : refactor sans effet fonctionnel
+
 ### 2026-08-24 — Issue #36 : valeurs non finies (backend + remontée d'erreur frontend)
 
 - **Cause** : `temp: float` acceptait `NaN`/`±inf` (défaut Pydantic) et
@@ -118,9 +158,9 @@ production et validé. Une réduction de périmètre a suivi la livraison :
 livrés et fonctionnels mais inutilisés à l'usage, retirés par la PR #41 (cf.
 l'entrée de changelog du même jour).
 
-Restent aussi ouvertes, hors LOT et sans urgence : #30 (refactor — extraire la
-géométrie curseur→viewBox dans `chartUtils.js` et la partager avec
-`HistoriqueChart`) et les six issues de l'audit transversal #33 → #38.
+Restent aussi ouvertes, hors LOT et sans urgence : les six issues de l'audit
+transversal #33 → #38. L'issue #30 (refactor de la géométrie curseur→viewBox) a
+été traitée le 2026-08-29, cf. l'entrée de changelog du même jour.
 
 ### 2026-08-24 — Issue #27 : filtre par type de mesure + hauteur fluide (Vue Analyse)
 
