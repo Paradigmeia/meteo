@@ -28,6 +28,30 @@ Légende : 🔲 À faire · 🔄 En cours · ✅ Livré · ⚠️ Dette techniqu
 
 ## Changelog
 
+### 2026-08-29 — Déploiement : le script de mise à jour se relance après le pull
+
+- **Cause** : `scripts/update.sh` fait son `git pull` puis continue de s'exécuter,
+  donc il se met à jour lui-même en cours de route. bash lit un script par
+  position d'octet au fil de l'exécution : après un pull qui décale les lignes,
+  la suite est lue dans le **nouveau** fichier à l'**ancien** offset. Constaté au
+  déploiement de la PR #45 — le `npm test` ajouté par cette même PR n'a pas
+  tourné, le script exécuté étant la version d'avant le pull
+- **Correctif** : après le pull, le script se relance explicitement une fois
+  (`exec bash "$REPO/scripts/update.sh" --relance`), le drapeau évitant la
+  boucle. Les étapes suivantes viennent alors de la version tirée, en entier
+- **Vérifié sur copie instrumentée** (aucun déploiement réel) : sans le
+  garde-fou, la reprise à l'ancien offset tombe au milieu d'un commentaire de la
+  nouvelle version et bash tente d'exécuter un mot français comme commande
+  (`ligne 10: où: command not found`, code 127) — la panne silencieuse du 29 août
+  aurait pu être bruyante, c'est une question de chance sur l'endroit du
+  décalage. Avec le garde-fou : relance unique, étapes exécutées depuis la
+  version tirée (marqueurs de version à l'appui), `--relance` seul ne reboucle
+  pas, code de sortie propagé
+- **Transition** : la version en production n'a pas encore le garde-fou, donc le
+  prochain `update.sh` reste exposé au défaut qu'il corrige. Une fois cette PR
+  mergée, faire ce déploiement-là en deux temps :
+  `cd /home/debian/meteo && git pull origin main && bash scripts/update.sh --relance`
+
 ### 2026-08-29 — Issue #30 : géométrie curseur→viewBox partagée + runner de test frontend
 
 - **`chartUtils.js`** : la conversion « position du pointeur → abscisse dans le
