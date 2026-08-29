@@ -4,9 +4,19 @@ set -e
 
 REPO=/home/debian/meteo
 
-echo "=== Pull ==="
-cd "$REPO"
-git pull origin main
+# Le pull peut mettre à jour ce script lui-même. bash lit un script par
+# position d'octet au fil de l'exécution : continuer après un pull qui a décalé
+# les lignes fait exécuter un mélange des deux versions — au mieux une étape
+# sautée (c'est ce qui est arrivé au déploiement du 2026-08-29, où le npm test
+# tout juste ajouté n'a pas tourné), au pire une ligne tronquée. On se relance
+# donc explicitement dans la version fraîchement tirée, une seule fois.
+if [ "$1" != "--relance" ]; then
+  echo "=== Pull ==="
+  cd "$REPO"
+  git pull origin main
+  echo "=== Relance dans la version à jour ==="
+  exec bash "$REPO/scripts/update.sh" --relance
+fi
 
 echo "=== Backend : dépendances ==="
 cd "$REPO/backend"
