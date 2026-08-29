@@ -80,6 +80,13 @@ describe('viewBoxXFromClient', () => {
     expect(viewBoxXFromClient(1200, 10, ctm)).toBe(900)
   })
 
+  it('applique tous les termes de la ligne, pas seulement la translation', () => {
+    // Échelles distinctes sur x et y et terme d'inclinaison non nul : une
+    // confusion a↔d ou c↔b, ou l'oubli de c·y, change le résultat
+    const ctm = { inverse: () => matrix(2, 0, 0.5, 1, -10, 0) }
+    expect(viewBoxXFromClient(100, 40, ctm)).toBe(2 * 100 + 0.5 * 40 - 10)
+  })
+
   it('renvoie null si la matrice n\'est pas inversible', () => {
     // inverse() d'une matrice singulière rend une matrice de NaN
     const ctm = { inverse: () => matrix(NaN, NaN, NaN, NaN, NaN, NaN) }
@@ -95,8 +102,12 @@ describe('viewBoxXFromPointerEvent', () => {
   })
 
   it('utilise la matrice quand elle est disponible', () => {
-    const target = svg({ getScreenCTM: () => ({ inverse: () => matrix(1, 0, 0, 1, -300, 0) }) })
-    expect(viewBoxXFromPointerEvent({ currentTarget: target, clientX: 1200, clientY: 10 })).toBe(900)
+    // Matrice et repli doivent donner des résultats *différents*, sinon le test
+    // passerait aussi bien par l'un que par l'autre : décalage de 100 pour la
+    // matrice, quand la boîte de la fixture en impose 300 au repli
+    const target = svg({ getScreenCTM: () => ({ inverse: () => matrix(1, 0, 0, 1, -100, 0) }) })
+    expect(viewBoxXFromPointerEvent({ currentTarget: target, clientX: 1200, clientY: 10 })).toBe(1100)
+    expect(viewBoxXFromRect(1200, rect(0, 1500, 220), 900, 220)).toBe(900)
   })
 
   it('retombe sur la géométrie de la boîte sans matrice', () => {
@@ -112,6 +123,11 @@ describe('viewBoxXFromPointerEvent', () => {
       viewBox: { baseVal: { x: 0, width: 900, height: 110 } },
     })
     expect(viewBoxXFromPointerEvent({ currentTarget: panel, clientX: 300, clientY: 10 })).toBe(0)
+  })
+
+  it('décale le résultat du repli par l\'origine du viewBox', () => {
+    const shifted = svg({ viewBox: { baseVal: { x: 50, width: 900, height: 220 } } })
+    expect(viewBoxXFromPointerEvent({ currentTarget: shifted, clientX: 300, clientY: 10 })).toBe(50)
   })
 
   it('prend le premier point de contact sur un évènement tactile', () => {

@@ -12,9 +12,12 @@ echo "=== Backend : dépendances ==="
 cd "$REPO/backend"
 venv/bin/pip install -q -r requirements.txt
 
-echo "=== Frontend : build ==="
+echo "=== Frontend : tests + build ==="
 cd "$REPO/frontend"
 npm ci --silent
+# set -e arrête le déploiement si la suite échoue : un runner que rien
+# n'exécute automatiquement ne protège que ceux qui pensent à le lancer
+npm test
 npm run build
 
 echo "=== Restart ==="

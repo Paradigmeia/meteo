@@ -126,11 +126,12 @@ export function viewBoxXFromRect(clientX, rect, viewBoxWidth, viewBoxHeight) {
 }
 
 // Composition des deux pour un évènement souris ou tactile React sur un <svg>.
-// Les dimensions du viewBox sont lues sur l'élément lui-même plutôt que passées
-// par l'appelant : elles ne peuvent pas diverger de celles réellement rendues
-// (AnalyseChart en mode Séparé attache les mêmes gestionnaires à deux panneaux
-// de hauteurs différentes). Renvoie null si la position n'est pas calculable —
-// mieux vaut ne pas déplacer le curseur que le poser au mauvais endroit.
+// La matrice d'abord, le repli ensuite — en navigateur le repli n'est en
+// pratique pas emprunté : getScreenCTM() ne rend null que sur un élément non
+// rendu, qui ne reçoit alors aucun évènement pointeur. Il existe pour les tests
+// et pour ne pas dépendre d'une seule API. Renvoie null si la position n'est
+// calculable ni par l'une ni par l'autre — mieux vaut ne pas déplacer le
+// curseur que le poser au mauvais endroit.
 export function viewBoxXFromPointerEvent(event) {
   const source = event.touches ? event.touches[0] : event
   if (!source) return null
@@ -138,6 +139,12 @@ export function viewBoxXFromPointerEvent(event) {
   const fromCtm = viewBoxXFromClient(source.clientX, source.clientY, svg.getScreenCTM?.())
   if (fromCtm !== null) return fromCtm
 
+  // Le repli lit le viewBox sur l'élément plutôt que de le recevoir en
+  // paramètre : AnalyseChart en mode Séparé attache les mêmes gestionnaires à
+  // deux panneaux de hauteurs différentes, un paramètre pourrait diverger de la
+  // géométrie rendue. La garde ne couvre que l'absence de `viewBox` sur la
+  // cible (élément non-SVG) : un <svg> sans attribut viewBox a bien un baseVal,
+  // à zéro, et c'est le contrôle de finitude qui l'écarte.
   const viewBox = svg.viewBox?.baseVal
   if (!viewBox) return null
   const x = viewBoxXFromRect(source.clientX, svg.getBoundingClientRect(), viewBox.width, viewBox.height)

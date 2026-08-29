@@ -15,25 +15,40 @@ maison-temp/
 │   ├── database.py        # SQLite init, helpers
 │   ├── models.py          # Pydantic schemas
 │   ├── config.py          # Settings (env vars)
-│   └── requirements.txt
+│   ├── test_main.py       # Tests pytest du backend
+│   ├── requirements.txt
+│   └── requirements-dev.txt
 ├── frontend/
 │   ├── src/
 │   │   ├── App.jsx
+│   │   ├── main.jsx
+│   │   ├── App.css / index.css
+│   │   ├── meteoUtils.js              # Libellés et icônes des codes météo Open-Meteo
 │   │   ├── components/
+│   │   │   ├── Dashboard.jsx          # Écran d'accueil mobile (météo + cartes sondes)
+│   │   │   ├── Detail.jsx             # Vue détail d'une sonde (mobile)
 │   │   │   ├── MeteoCard.jsx          # Bloc météo complet (actuel + horaire + J+1)
-│   │   │   ├── HourlyStrip.jsx        # Bandeau horaire scrollable
 │   │   │   ├── SondeCard.jsx          # Card sonde temps réel
 │   │   │   ├── HistoriqueChart.jsx    # Graphique SVG dual-axe (vue Détail mobile)
+│   │   │   ├── SurvolPanel.jsx        # Panneau de valeurs au survol
 │   │   │   ├── AnalyseView.jsx        # Vue Analyse complète (desktop)
 │   │   │   └── AnalyseChart.jsx       # Graphique SVG multi-courbes
-│   │   ├── utils/
-│   │   │   ├── chartUtils.js          # Échelles, graduations, lissage, géométrie curseur→viewBox
-│   │   │   ├── chartUtils.test.js     # Tests vitest de la géométrie curseur→viewBox
-│   │   │   └── analyseUtils.js        # Helpers propres à la Vue Analyse
-│   │   └── main.jsx
+│   │   ├── hooks/
+│   │   │   ├── useSondes.js           # Sondes + valeurs courantes (polling)
+│   │   │   ├── useReleves.js          # Relevés d'une sonde (vue Détail)
+│   │   │   ├── useAnalyseReleves.js   # Relevés multi-sondes (Vue Analyse)
+│   │   │   ├── useMeteo.js            # Météo Open-Meteo via le backend
+│   │   │   └── useIsDesktop.js        # Bascule mobile / desktop
+│   │   └── utils/
+│   │       ├── chartUtils.js          # Échelles, graduations, lissage, géométrie curseur→viewBox
+│   │       ├── chartUtils.test.js     # Tests vitest de la géométrie curseur→viewBox
+│   │       └── analyseUtils.js        # Helpers propres à la Vue Analyse
 │   ├── index.html
 │   ├── package.json
 │   └── vite.config.js
+├── scripts/
+│   ├── install.sh
+│   └── update.sh
 ├── nginx/
 │   └── maison-temp.conf
 ├── docs/
