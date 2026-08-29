@@ -28,6 +28,43 @@ Légende : 🔲 À faire · 🔄 En cours · ✅ Livré · ⚠️ Dette techniqu
 
 ## Changelog
 
+### 2026-08-29 — Issue #50 : icônes embarquées en SVG, CDN supprimé
+
+- **Cause** : `index.html` chargeait `@tabler/icons-webfont` depuis jsdelivr sans
+  `integrity` ni `crossorigin`. Une compromission du CDN aurait injecté du CSS
+  arbitraire sur tout le site, sans CSP pour rattraper (cf. #49)
+- **`utils/iconPaths.js` + `components/Icon.jsx`** : les 15 glyphes utilisés sont
+  embarqués en SVG, tracés repris
+  du dépôt Tabler 3.19.0 (MIT). Rendu en `1em` et `currentColor`, donc les
+  `style={{ fontSize, color }}` des composants et la règle `.hour-icon`
+  continuent de s'appliquer sans modification. Seul ajout CSS :
+  `.icon { vertical-align: -0.125em }`
+- **SRI écarté** : `integrity` n'aurait couvert que la feuille, pas les polices
+  qu'elle tire en relatif. Et la disproportion demeurait : 238 kB de CSS + 865 kB
+  de woff2, ~1,1 Mo de tiers pour quinze glyphes, quand le bundle applicatif
+  entier en fait 228
+- **Bilan** : bundle 228,6 → 231,5 kB (+2,9 kB), contre ~1,1 Mo qui ne transitent
+  plus et une résolution DNS + poignée de main TLS vers un tiers en moins
+- **Bug corrigé au passage** : `ti-cloud-sun` et `ti-cloud-drizzle` **n'existent
+  pas** dans Tabler 3.19.0. « Partiellement nuageux » (WMO 2) et « Bruine »
+  (51/53/55) n'affichaient donc aucune icône en production — silencieusement, un
+  glyphe absent ne produisant ni erreur console ni trace serveur. Le défaut n'est
+  apparu qu'en cherchant les SVG correspondants. Remplacés par `haze` et
+  `droplets`, choisis pour rester distincts de `sun` (« Ciel dégagé ») et
+  `cloud-rain` (« Pluie »)
+- **`Icon.test.js`** : 4 tests fermant cette classe de bug — tout nom référencé
+  par `WMO_ICONS`, par le repli des codes inconnus ou littéralement dans un
+  composant doit exister, et aucune icône ne doit être embarquée sans usage.
+  Vérifiés par mutation : réintroduire `cloud-sun` fait tomber 2 tests, retirer
+  une icône utilisée 1, en embarquer une inutilisée 1, écrire un nom fautif dans
+  un composant 2
+- 21 tests au total. `npm run lint` et `npm run build` passent
+- **Non vérifié en navigateur** : l'alignement vertical des icônes
+  (`vertical-align: -0.125em` approche le comportement d'un glyphe de police) et
+  les deux nouveaux glyphes météo demandent un coup d'œil après déploiement
+- PLAN.md v1.7 → v1.8 (décision 15). SPEC.md inchangée : §4 décrit une icône
+  météo sans en nommer la source
+
 ### 2026-08-29 — Déploiement : le script de mise à jour se relance après le pull
 
 - **Cause** : `scripts/update.sh` fait son `git pull` puis continue de s'exécuter,

@@ -1,4 +1,5 @@
 import { formatAgo, isOffline } from '../meteoUtils'
+import Icon from './Icon'
 
 function humAgo(dr) {
   if (!dr?.recu_le_hum || !dr?.recu_le) return null
@@ -25,7 +26,7 @@ export default function SondeCard({ sonde, fullWidth, onClick }) {
         <>
           <div style={{ display: 'flex', alignItems: 'center' }}>
             <span className="sonde-name" style={{ marginBottom: 0 }}>{sonde.nom}</span>
-            {offline && <span className="offline-badge"><i className="ti ti-wifi-off" /> Hors ligne</span>}
+            {offline && <span className="offline-badge"><Icon name="wifi-off" /> Hors ligne</span>}
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
             {dr ? (
@@ -33,7 +34,7 @@ export default function SondeCard({ sonde, fullWidth, onClick }) {
                 <span className="sonde-temp">{dr.temperature.toFixed(1)}°</span>
                 {dr.humidite != null && (
                   <span className="sonde-hum">
-                    <i className="ti ti-droplet" style={{ color: '#1D9E75' }} />{dr.humidite}%
+                    <Icon name="droplet" style={{ color: '#1D9E75' }} />{dr.humidite}%
                     {stalehum && <span style={{ fontSize: 10, color: '#B5B0A8', marginLeft: 4 }}>{stalehum}</span>}
                   </span>
                 )}
@@ -46,14 +47,14 @@ export default function SondeCard({ sonde, fullWidth, onClick }) {
         <>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
             <span className="sonde-name" style={{ marginBottom: 0 }}>{sonde.nom}</span>
-            {offline && <i className="ti ti-wifi-off" style={{ fontSize: 13, color: '#A32D2D' }} />}
+            {offline && <Icon name="wifi-off" style={{ fontSize: 13, color: '#A32D2D' }} />}
           </div>
           {dr ? (
             <>
               <div className="sonde-temp">{dr.temperature.toFixed(1)}°</div>
               {dr.humidite != null && (
                 <div className="sonde-hum">
-                  <i className="ti ti-droplet" style={{ color: '#1D9E75' }} />
+                  <Icon name="droplet" style={{ color: '#1D9E75' }} />
                   {dr.humidite}%
                   {stalehum && <span style={{ fontSize: 10, color: '#B5B0A8', marginLeft: 4 }}>{stalehum}</span>}
                 </div>

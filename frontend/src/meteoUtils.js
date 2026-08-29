@@ -1,25 +1,29 @@
+// Noms d'icônes Tabler, résolus par le composant Icon (cf. components/Icon.jsx).
+// 'haze' et 'droplets' remplacent 'cloud-sun' et 'cloud-drizzle', qui n'existent
+// pas dans Tabler 3.19.0 : ces deux conditions n'affichaient donc aucune icône
+// tant que la police était chargée depuis le CDN (issue #50)
 export const WMO_ICONS = {
-  0: 'ti-sun',
-  1: 'ti-sun',
-  2: 'ti-cloud-sun',
-  3: 'ti-cloud',
-  45: 'ti-cloud-fog',
-  48: 'ti-cloud-fog',
-  51: 'ti-cloud-drizzle',
-  53: 'ti-cloud-drizzle',
-  55: 'ti-cloud-drizzle',
-  61: 'ti-cloud-rain',
-  63: 'ti-cloud-rain',
-  65: 'ti-cloud-rain',
-  71: 'ti-snowflake',
-  73: 'ti-snowflake',
-  75: 'ti-snowflake',
-  80: 'ti-cloud-rain',
-  81: 'ti-cloud-rain',
-  82: 'ti-cloud-rain',
-  95: 'ti-cloud-storm',
-  96: 'ti-cloud-storm',
-  99: 'ti-cloud-storm',
+  0: 'sun',
+  1: 'sun',
+  2: 'haze',
+  3: 'cloud',
+  45: 'cloud-fog',
+  48: 'cloud-fog',
+  51: 'droplets',
+  53: 'droplets',
+  55: 'droplets',
+  61: 'cloud-rain',
+  63: 'cloud-rain',
+  65: 'cloud-rain',
+  71: 'snowflake',
+  73: 'snowflake',
+  75: 'snowflake',
+  80: 'cloud-rain',
+  81: 'cloud-rain',
+  82: 'cloud-rain',
+  95: 'cloud-storm',
+  96: 'cloud-storm',
+  99: 'cloud-storm',
 }
 
 export const WMO_LABELS = {
@@ -47,7 +51,7 @@ export const WMO_LABELS = {
 }
 
 export function wmoIcon(code) {
-  return WMO_ICONS[code] ?? 'ti-cloud'
+  return WMO_ICONS[code] ?? 'cloud'
 }
 
 export function wmoLabel(code) {
