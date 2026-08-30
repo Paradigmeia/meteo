@@ -1,8 +1,8 @@
 # PLAN.md — maison-temp
 
-**Version** : 1.13
+**Version** : 1.14
 **Date** : 2026-08-30
-**Référence** : SPEC.md v1.8
+**Référence** : SPEC.md v1.9
 
 ---
 
@@ -688,6 +688,37 @@ Procédure, à faire dans cet ordre — le service refuse toute écriture entre 
 - **Le motif est déjà en place sur ce serveur** pour d'autres projets
   (`fail2ban-client status`, `smartctl`, `needrestart -b`) : c'est une
   convention existante, pas une exception créée ici
+
+---
+
+### Décision 21 (2026-08-30)
+
+- **Contexte** : `/api/sondes` calculait le plus récent des deux horodatages
+  (température, humidité) puis le jetait — la construction du modèle recalculait
+  `recu_le_temp or recu_le_hum`, qui renvoie toujours celui de la température dès
+  qu'il existe, si vieux soit-il (issue #43)
+- **Ce que `recu_le` veut dire est maintenant fixé** : le dernier signe de vie de
+  la sonde, quelle que soit la grandeur qui l'a donné. C'est la question à
+  laquelle le badge « Hors ligne » répond, et les deux grandeurs arrivent en
+  relevés séparés — le Shelly les envoie en deux actions distinctes, l'une peut
+  cesser de remonter sans l'autre
+- **La comparaison porte sur les `datetime`, pas sur les chaînes ISO** : les
+  8 114 lignes en base ont aujourd'hui toutes le même format, donc l'ordre
+  lexicographique coïncide avec l'ordre chronologique — mais rien ne le garantit,
+  et `_parse_recu_le` ramène par exemple un horodatage naïf à UTC, ce qu'une
+  comparaison de chaînes ignorerait. Le même sujet est ouvert côté SQL (#59)
+- **`recu_le_temp` est ajouté à la réponse** : `recu_le` étant désormais un
+  maximum, il ne dit plus de quand date chaque grandeur. Sans cette information,
+  la card ne peut plus signaler celle des deux qui traîne
+- **Le correctif backend seul aurait dégradé l'affichage.** Avant, une sonde dont
+  seule l'humidité remontait portait un badge « Hors ligne » — indu, mais qui
+  signalait quelque chose. Après, elle est correctement vue en ligne : sans
+  marqueur, sa température figée depuis des mois s'afficherait sur une card
+  d'apparence saine. Le marqueur d'âge qui n'existait que pour l'humidité vaut
+  donc pour les deux grandeurs, avec le même seuil de 30 min
+- **Le seuil de 30 min est conservé tel quel** : deux relevés séparés de quelques
+  minutes sont le cas nominal, le Shelly envoyant ses deux actions l'une après
+  l'autre
 
 ---
 

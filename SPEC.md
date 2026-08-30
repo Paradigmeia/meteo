@@ -1,6 +1,6 @@
 # SPEC.md — maison-temp
 
-**Version** : 1.8
+**Version** : 1.9
 **Date** : 2026-08-30
 **Objectif principal** : Suivre en temps réel et en historique les températures et taux d'humidité de la maison (intérieur + extérieur) via un dashboard web responsive accessible en ligne.
 
@@ -112,6 +112,14 @@ Affichage :
 - Section "Extérieur" : card dédiée pour la sonde extérieure
 - Une card par sonde : nom, température actuelle, humidité actuelle, heure du dernier relevé
 - Indicateur visuel si sonde hors ligne (pas de relevé depuis > 3h) : badge "Hors ligne" rouge + card pleine largeur
+- **« Hors ligne » se lit sur le dernier signe de vie de la sonde**, c'est-à-dire
+  le plus récent des deux horodatages : température et humidité arrivent en deux
+  relevés distincts, et l'une peut cesser de remonter sans l'autre. Une sonde
+  dont seule l'humidité arrive encore n'est pas hors ligne (issue #43)
+- **La grandeur qui traîne est signalée à côté de sa valeur** (son âge, en petit)
+  dès qu'elle a plus de 30 min de retard sur ce dernier signe de vie : sans quoi
+  une valeur vieille de plusieurs heures s'afficherait sur une card par ailleurs
+  saine, sans rien qui la distingue d'une mesure fraîche
 - Responsive mobile-first (cards 2 colonnes sur mobile, intérieur / extérieur séparés visuellement)
 
 Navigation : tap sur une card → vue détail de la sonde (cf. §4.3)
