@@ -63,6 +63,41 @@ sudo systemctl daemon-reload
 sudo systemctl enable maison-temp
 sudo systemctl start maison-temp
 
+echo "=== 6. sudo sans mot de passe pour le seul restart de maison-temp ==="
+# scripts/update.sh se termine par un `sudo systemctl restart maison-temp` suivi
+# de deux contrôles de santé. Hors terminal interactif (script, tâche planifiée),
+# sudo ne peut pas demander de mot de passe : le restart échoue et, sous `set -e`,
+# le déploiement se termine sans jamais afficher son verdict.
+#
+# Le chemin absolu compte doublement. Une règle sur `systemctl` sans chemin
+# serait contournable via le PATH ; un chemin qui ne serait pas celui que sudo
+# résout au moment de l'appel ne s'appliquerait tout simplement pas. On prend
+# donc celui de cette machine plutôt que de le supposer.
+SYSTEMCTL=$(command -v systemctl)
+case "$SYSTEMCTL" in
+    /*) ;;
+    *) echo "✗ chemin absolu de systemctl introuvable"; exit 1 ;;
+esac
+# mktemp plutôt qu'un nom fixe dans /tmp : le fichier est écrit par `debian`
+# puis installé par root, et un nom prévisible dans un répertoire ouvert à tous
+# est un point d'entrée par lien symbolique.
+SUDOERS_TMP=$(mktemp)
+trap 'rm -f "$SUDOERS_TMP"' EXIT
+cat > "$SUDOERS_TMP" <<SUDOERS
+debian ALL=(root) NOPASSWD: $SYSTEMCTL restart maison-temp
+SUDOERS
+# Jamais de copie sans contrôle préalable : une erreur de syntaxe dans
+# /etc/sudoers.d verrouille sudo sur la machine — y compris pour la réparer.
+sudo visudo -cf "$SUDOERS_TMP"
+sudo install -o root -g root -m 0440 "$SUDOERS_TMP" /etc/sudoers.d/maison-temp
+if sudo -n -l "$SYSTEMCTL" restart maison-temp > /dev/null 2>&1; then
+    echo "✓ restart sans mot de passe autorisé"
+else
+    # `sudo -l` est lui-même soumis au mot de passe : ne pas conclure à l'échec
+    echo "⚠️  vérification impossible sans mot de passe, à contrôler à la main :"
+    echo "   sudo -l $SYSTEMCTL restart maison-temp"
+fi
+
 echo ""
 echo "=== Smoke tests ==="
 sleep 2

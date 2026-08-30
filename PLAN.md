@@ -1,6 +1,6 @@
 # PLAN.md — maison-temp
 
-**Version** : 1.12
+**Version** : 1.13
 **Date** : 2026-08-30
 **Référence** : SPEC.md v1.8
 
@@ -99,6 +99,18 @@ API_KEY=<token généré à l'install>
 DATABASE_PATH=./data/maison.db
 PORT=8042
 ```
+
+### Règle sudo (hors dépôt)
+
+`/etc/sudoers.d/maison-temp`, en `0440`, posée par `scripts/install.sh` :
+
+```
+debian ALL=(root) NOPASSWD: /usr/bin/systemctl restart maison-temp
+```
+
+Elle existe pour que `scripts/update.sh` aille jusqu'au bout hors terminal
+interactif. Cf. décision 20 pour la portée exacte de la concession et les
+raisons de la forme retenue.
 
 ---
 
@@ -613,6 +625,43 @@ Procédure, à faire dans cet ordre — le service refuse toute écriture entre 
 - **Le contrôle sur `API_KEY` vide est conservé et désormais testé** : sans lui,
   une installation dont la clé n'a pas été renseignée accepterait une clé vide,
   `compare_digest("", "")` étant vrai
+
+---
+
+### Décision 20 (2026-08-30)
+
+- **Contexte** : `scripts/update.sh` se termine par `sudo systemctl restart
+  maison-temp` puis deux contrôles de santé. Lancé hors terminal interactif,
+  `sudo` ne peut pas demander de mot de passe ; sous `set -e`, le déploiement
+  s'arrête là. Le service n'est pas redémarré — sans conséquence tant que la
+  livraison ne touche que le frontend, bloquant dès qu'elle touche `backend/` —
+  et surtout **le verdict de fin ne s'affiche jamais**, alors que tout le reste
+  s'est bien passé (issue #48)
+- **Choix** : une règle `NOPASSWD` dans `/etc/sudoers.d/maison-temp`, limitée à
+  cette seule commande. Ni `restart *`, ni `systemctl` en général
+- **La concession est plus étroite qu'il n'y paraît** : `debian` a déjà
+  `(ALL : ALL) ALL` et peut donc redémarrer n'importe quel service en tapant son
+  mot de passe. La règle n'ajoute aucun droit, elle retire l'exigence de mot de
+  passe sur une commande. Ce qu'elle change réellement : un processus tournant
+  sous `debian` pourrait redémarrer `maison-temp` sans s'authentifier, soit une
+  coupure de quelques secondes du dashboard. C'est le pire cas, et il est
+  accepté pour ce service
+- **Le chemin absolu est load-bearing, deux fois** : une règle sur `systemctl`
+  sans chemin serait contournable via le `PATH` ; et un chemin qui ne serait pas
+  celui que `sudo` résout à l'appel ne s'appliquerait tout simplement pas — la
+  règle serait silencieusement inopérante. `install.sh` prend donc celui de la
+  machine (`command -v systemctl`) au lieu de le supposer, et refuse de
+  continuer s'il n'est pas absolu
+- **Le fichier est validé avant d'être posé** (`visudo -cf` sur une copie
+  temporaire, puis `install -m 0440`) : une erreur de syntaxe dans
+  `/etc/sudoers.d` verrouille `sudo` sur la machine, y compris pour la réparer
+- **Le contrôle final ne fait pas échouer l'installation** : `sudo -l` est
+  lui-même soumis au mot de passe selon la configuration, et son échec ne prouve
+  donc pas que la règle est mauvaise. Il affiche un avertissement et la commande
+  à passer à la main
+- **Le motif est déjà en place sur ce serveur** pour d'autres projets
+  (`fail2ban-client status`, `smartctl`, `needrestart -b`) : c'est une
+  convention existante, pas une exception créée ici
 
 ---
 

@@ -28,6 +28,29 @@ Légende : 🔲 À faire · 🔄 En cours · ✅ Livré · ⚠️ Dette techniqu
 
 ## Changelog
 
+### 2026-08-30 — Issue #48 : le déploiement s'arrêtait avant son verdict
+
+- **Cause** : `scripts/update.sh` se termine par `sudo systemctl restart
+  maison-temp` puis deux contrôles de santé. Hors terminal interactif, `sudo` ne
+  peut pas demander de mot de passe et, sous `set -e`, le script sort en erreur
+  juste avant d'afficher son verdict — alors que le pull, les tests et le build
+  se sont bien passés. Il fallait refaire les vérifications à la main
+- **Règle sudo** : `/etc/sudoers.d/maison-temp` en `0440`, limitée à
+  `systemctl restart maison-temp`. Posée sur le serveur, et désormais posée aussi
+  par `scripts/install.sh` — sans quoi une machine reconstruite repartirait avec
+  le défaut
+- **`install.sh`** résout le chemin de `systemctl` sur la machine au lieu de le
+  supposer (une règle dont le chemin ne correspond pas à celui que `sudo` résout
+  est silencieusement inopérante), valide le fichier par `visudo -cf` avant de le
+  poser (une erreur de syntaxe dans `sudoers.d` verrouille `sudo`), et signale
+  sans échouer si le contrôle final n'est pas concluant — `sudo -l` étant
+  lui-même soumis au mot de passe
+- **Portée** : `debian` avait déjà `(ALL : ALL) ALL`. La règle n'ajoute aucun
+  droit, elle retire l'exigence de mot de passe sur une commande. Vérifié en
+  production : la seule règle `NOPASSWD` du projet est celle-ci, aucune ne porte
+  sur nginx
+- **PLAN.md** : § Configuration (la règle) et décision 20 (le raisonnement)
+
 ### 2026-08-30 — Issue #44 : une clé API non-ASCII renvoyait 500 au lieu de 401
 
 - **Cause** : `secrets.compare_digest` refuse les chaînes non-ASCII et lève une
