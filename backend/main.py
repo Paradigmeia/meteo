@@ -379,8 +379,16 @@ async def get_releves(
         start = end - timedelta(hours=PERIOD_HOURS[period])
         hours = PERIOD_HOURS[period]
 
-    since = start.isoformat()
-    until = end.isoformat()
+    # Bornes normalisées en UTC : SQLite compare `recu_le` comme du texte, et
+    # toutes les lignes sont écrites en `+00:00` (`_now_iso`). Le décalage d'une
+    # borne s'écrivant après les chiffres comparés, il ne comptait pour rien — la
+    # requête lisait la fenêtre telle qu'elle s'écrit, décalée d'autant, alors
+    # que le plafond ci-dessus raisonne sur de vrais instants (issue #59).
+    # `isoformat()` rend ici `+00:00` et non `Z`, et c'est ce qui garde les
+    # bornes comparables aux lignes en base : `Z` s'ordonnerait après le `.` des
+    # microsecondes. Cf. décision 22.
+    since = start.astimezone(timezone.utc).isoformat()
+    until = end.astimezone(timezone.utc).isoformat()
     async with get_db() as db:
         async with db.execute("SELECT id FROM sondes WHERE slug = ?", (slug,)) as cur:
             row = await cur.fetchone()

@@ -28,6 +28,48 @@ Légende : 🔲 À faire · 🔄 En cours · ✅ Livré · ⚠️ Dette techniqu
 
 ## Changelog
 
+### 2026-08-30 — Issue #59 : la fenêtre validée n'était pas la fenêtre lue
+
+- **Cause** : `/api/releves/{slug}?from=&to=` construisait ses bornes avec
+  `isoformat()`, qui conserve le décalage horaire reçu, et SQLite les comparait
+  comme du texte à une colonne stockée en `+00:00`. Le décalage s'écrivant après
+  les chiffres comparés — et `+`/`-` s'ordonnant tous deux avant le `.` des
+  microsecondes — il ne comptait pour rien : la requête lisait la fenêtre telle
+  qu'elle s'écrit. Mesuré en production, deux écritures des **mêmes instants** :
+  6 points en `Z`, 2 points en `+02:00`
+- **`main.py`** : `start.astimezone(timezone.utc).isoformat()`, idem pour `end`.
+  Le plafond de #37, qui raisonnait déjà sur de vrais instants, valide désormais
+  la fenêtre réellement lue — l'écart pouvait atteindre 26 h entre `-12:00` et
+  `+14:00`, soit 366 jours lus pour 365 validés
+- **Le piège du correctif était le format de sortie** : normaliser en `Z` aurait
+  cassé la comparaison dans l'autre sens, `Z` s'ordonnant après le `.` des
+  microsecondes. Un test dédié pose ses deux lignes sur la seconde exacte des
+  bornes — seul endroit où le suffixe est atteint par la comparaison — et attrape
+  les deux conséquences : borne basse exclue, borne haute incluse à tort
+- **Ce que le correctif ne touche pas, dit explicitement** : le `ORDER BY recu_le
+  DESC` de `/api/sondes`, que la décision 21 renvoyait à cette issue, reste
+  lexicographique. Il est correct tant que toute ligne s'écrit en `+00:00` — un
+  invariant que rien ne gardait, et qu'un test épingle maintenant sur les deux
+  chemins d'écriture (webhook GET et POST)
+- **Un test écrit puis rendu décisif** : la borne sans fuseau ne prouvait rien,
+  la machine tournant en UTC — `astimezone` sur un naïf y donne le même résultat
+  qu'une normalisation correcte. Il force désormais l'heure locale du processus à
+  +14:00. Sans ça, il passait quoi qu'on écrive
+- **Deux tests fusionnés en un test paramétré** : les décalages positif et négatif
+  mouraient sur exactement les mêmes mutations. Les garder séparés laissait croire
+  qu'ils couvraient des choses différentes
+- **Tests** : 71 backend (6 ajoutés). **Neuf mutations, toutes attrapées** :
+  correctif retiré (3 échecs) · borne basse seule normalisée (3) · borne haute
+  seule (3) · normalisation en `Z` (1) · `replace(tzinfo=utc)` au lieu
+  d'`astimezone` (3) · conversion de signe inversé (3) · `_parse_recu_le` cesse
+  d'étiqueter les naïfs (4) · `_now_iso` en heure locale (1) · `_now_iso` en `Z` (1)
+- **Vérifié sur une copie de la base de production** (8 134 relevés) : les trois
+  écritures des mêmes instants rendent 6 points chacune, contre 6/2/2 avant. Et en
+  non-régression, les 24 requêtes que l'interface émet réellement — six périodes
+  prédéfinies et deux plages libres en `Z`, sur les trois sondes — rendent des
+  réponses **octet pour octet identiques** avant et après. Aucun traceback
+- PLAN.md v1.14 → v1.15 (décision 22). SPEC.md inchangée
+
 ### 2026-08-30 — Issue #43 : `/api/sondes` jetait le timestamp qu'il venait de calculer
 
 - **Cause** : `get_sondes` calculait le plus récent des deux horodatages puis
