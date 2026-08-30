@@ -21,6 +21,11 @@ export default function SondeCard({ sonde, fullWidth, onClick }) {
   // suit la plus récente des deux, donc une sonde dont seule l'humidité remonte
   // n'est plus « hors ligne » — et sans ce marqueur, sa température figée
   // s'afficherait sans rien signaler du tout.
+  // `dernier_releve` existe dès qu'UNE des deux grandeurs est présente : une
+  // sonde qui n'aurait jamais envoyé de température renvoie `temperature: null`,
+  // et `toFixed` sur null ferait disparaître tout le dashboard, faute d'error
+  // boundary. Le marqueur, lui, reste porté par l'horodatage : une valeur
+  // absente n'a pas d'âge à afficher.
   const staletemp = retardAgo(dr, dr?.recu_le_temp)
   const stalehum = retardAgo(dr, dr?.recu_le_hum)
 
@@ -42,7 +47,7 @@ export default function SondeCard({ sonde, fullWidth, onClick }) {
             {dr ? (
               <>
                 <span className="sonde-temp">
-                  {dr.temperature.toFixed(1)}°
+                  {dr.temperature != null ? `${dr.temperature.toFixed(1)}°` : '—'}
                   {staletemp && <span className="mesure-retard">{staletemp}</span>}
                 </span>
                 {dr.humidite != null && (
@@ -65,7 +70,7 @@ export default function SondeCard({ sonde, fullWidth, onClick }) {
           {dr ? (
             <>
               <div className="sonde-temp">
-                {dr.temperature.toFixed(1)}°
+                {dr.temperature != null ? `${dr.temperature.toFixed(1)}°` : '—'}
                 {staletemp && <span className="mesure-retard">{staletemp}</span>}
               </div>
               {dr.humidite != null && (

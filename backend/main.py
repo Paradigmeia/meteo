@@ -264,7 +264,9 @@ async def get_sondes():
         # aujourd'hui toutes les lignes ont le même format, donc l'ordre
         # lexicographique coïncide avec l'ordre chronologique, mais rien ne le
         # garantit — `_parse_recu_le` ramène par exemple un horodatage naïf à
-        # UTC, ce qu'une comparaison de chaînes ignorerait.
+        # UTC, ce qu'une comparaison de chaînes ignorerait. Le `ORDER BY recu_le
+        # DESC` de la requête ci-dessus, lui, reste lexicographique : c'est le
+        # même sujet, côté SQL, et il est traité par l'issue #59.
         dt_temp = _parse_recu_le(recu_le_temp) if recu_le_temp else None
         dt_hum = _parse_recu_le(recu_le_hum) if recu_le_hum else None
         if dt_temp is not None or dt_hum is not None:

@@ -48,15 +48,20 @@
 }
 .sonde-card:hover { background: #EDE6DB; }
 .sonde-card:focus { outline: 2px solid #BA7517; outline-offset: 2px; }
-.sonde-full { grid-column: 1 / -1; display: flex; justify-content: space-between; align-items: center; }
+.sonde-full { grid-column: 1 / -1; display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; row-gap: 6px; }
 .sonde-name { font-size: 12px; color: #8C8880; margin-bottom: 10px; }
-.sonde-temp { font-size: 28px; font-weight: 500; }
+/* Flex : la valeur et son marqueur d'âge (#43) forment une ligne à eux. Si le
+   marqueur passe dessous faute de place, il emporte sa propre hauteur au lieu
+   de la line-box de 28 px du voisin. */
+.sonde-temp { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px; font-size: 28px; font-weight: 500; }
 .sonde-hum { display: flex; align-items: center; gap: 4px; margin-top: 5px; font-size: 12px; color: #6B6560; }
 .sonde-ago { font-size: 11px; color: #B5B0A8; margin-top: 8px; }
 /* Âge d'une mesure en retard sur le dernier signe de vie de la sonde (#43).
-   Reprend le style qui était en dur sur le seul marqueur d'humidité. */
-.mesure-retard { font-size: 10px; color: #B5B0A8; margin-left: 4px; }
-.offline-badge { font-size: 11px; background: #FCEBEB; color: #A32D2D; padding: 2px 8px; border-radius: 6px; margin-left: 8px; display: inline-flex; align-items: center; gap: 4px; }
+   Reprend le style qui était en dur sur le seul marqueur d'humidité.
+   `nowrap` : sans lui, « il y a 59 min » se coupe, et l'orpheline hérite de la
+   line-box de 28 px de .sonde-temp — une bande vide dans la card. */
+.mesure-retard { font-size: 10px; color: #B5B0A8; white-space: nowrap; }
+.offline-badge { white-space: nowrap; font-size: 11px; background: #FCEBEB; color: #A32D2D; padding: 2px 8px; border-radius: 6px; margin-left: 8px; display: inline-flex; align-items: center; gap: 4px; }
 
 .back-btn { display: flex; align-items: center; gap: 6px; font-size: 14px; color: #6B6560; background: none; border: none; padding: 0; cursor: pointer; margin-bottom: 1.5rem; }
 .back-btn:hover { color: #1A1714; }

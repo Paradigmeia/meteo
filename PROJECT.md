@@ -44,11 +44,17 @@ Légende : 🔲 À faire · 🔄 En cours · ✅ Livré · ⚠️ Dette techniqu
   pour les deux grandeurs. Sans lui, le correctif backend aurait remplacé un
   badge indu par un silence — la card aurait paru saine avec une température
   vieille de plusieurs mois
-- **Tests** : 6 backend (les deux sens, chaque grandeur seule, horodatages
-  égaux, sonde sans relevé) et 12 frontend (6 cas × les deux dispositions de
-  card). Trois mutations backend et trois frontend vérifiées, toutes attrapées
-- **Vérifié visuellement** : les quatre états de card rendus hors navigateur et
-  capturés, marqueur à 10 px aligné sur la valeur dans les deux dispositions
+- **Tests** : 8 backend et 16 frontend (8 cas × les deux dispositions de card).
+  Suites à 65 et 54. Six mutations vérifiées de chaque côté, toutes attrapées
+- **Corrigé après review** : le marqueur cassait la mise en page à 375 px — et
+  les deux sondes actives étant seules dans leur section, 100 % des cards sont
+  rendues en pleine largeur, la disposition la plus dégradée. Deux tests ne
+  distinguaient pas une inversion température/humidité. La justification
+  « comparaison sur les `datetime` » n'était couverte par aucun test. Et
+  `toFixed` sur une température absente faisait disparaître le dashboard
+- **Vérifié visuellement à 375 px**, avant et après : hauteurs de card mesurées,
+  absence de débordement horizontal, captures des quatre états dans les deux
+  dispositions
 
 ### 2026-08-30 — Issue #48 : le déploiement s'arrêtait avant son verdict
 

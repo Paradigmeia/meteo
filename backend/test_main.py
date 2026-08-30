@@ -638,6 +638,37 @@ def test_sondes_recu_le_avec_la_seule_temperature(client):
     assert dr["humidite"] is None
 
 
+def test_sondes_recu_le_compare_des_instants_pas_des_chaines(client):
+    """Deux décalages horaires différents, où l'ordre des chaînes ISO contredit
+    l'ordre chronologique.
+
+    `09:00+02:00` s'écrit après `08:00+00:00` mais vaut 07:00 UTC, une heure plus
+    tôt. Une comparaison lexicographique — celle du code d'origine — élirait la
+    température. Ce test est le seul qui distingue les deux, la base n'ayant
+    aujourd'hui que des lignes au même format.
+    """
+    slug = _sonde_de_test("test-43-fuseaux")
+    _insert_releve(slug, 19.0, None, "2026-06-01T09:00:00+02:00")
+    _insert_releve(slug, None, 55.0, "2026-06-01T08:00:00+00:00")
+    dr = _dernier_releve(client, slug)
+    assert _dt(dr["recu_le"]) == _dt("2026-06-01T08:00:00+00:00")
+
+
+def test_sondes_recu_le_tolere_un_horodatage_sans_fuseau(client):
+    """Une ligne écrite sans fuseau doit être lue comme de l'UTC.
+
+    Il n'y en a aucune aujourd'hui, mais la colonne est du TEXT libre. Sans la
+    normalisation faite par `_parse_recu_le`, comparer un `datetime` naïf à un
+    `datetime` tz-aware lève une `TypeError` et `/api/sondes` répond 500 — donc
+    dashboard entièrement vide, pour une seule ligne mal formée.
+    """
+    slug = _sonde_de_test("test-43-naif")
+    _insert_releve(slug, 19.0, None, "2026-06-01T09:00:00")
+    _insert_releve(slug, None, 55.0, "2026-06-01T08:00:00+00:00")
+    dr = _dernier_releve(client, slug)
+    assert _dt(dr["recu_le"]) == _dt("2026-06-01T09:00:00+00:00")
+
+
 def test_sondes_sans_aucun_releve(client):
     """Aucune ligne : `dernier_releve` reste nul plutôt que d'être un objet vide
     — la card affiche « Aucune donnée »."""
