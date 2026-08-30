@@ -1,6 +1,6 @@
 # PLAN.md — maison-temp
 
-**Version** : 1.12
+**Version** : 1.13
 **Date** : 2026-08-30
 **Référence** : SPEC.md v1.8
 
@@ -99,6 +99,23 @@ API_KEY=<token généré à l'install>
 DATABASE_PATH=./data/maison.db
 PORT=8042
 ```
+
+### Règle sudo (hors dépôt)
+
+`/etc/sudoers.d/maison-temp`, en `0440`, posée par `scripts/install.sh`. Sur
+cette machine :
+
+```
+debian ALL=(root) NOPASSWD: /usr/bin/systemctl restart maison-temp
+```
+
+Le chemin n'est pas figé dans le script : il est cherché dans les répertoires
+système au moment de l'installation, `sudo` résolvant la commande via son
+`secure_path` et non via le `PATH` de l'utilisateur.
+
+Elle existe pour que `scripts/update.sh` aille jusqu'au bout hors terminal
+interactif. Cf. décision 20 pour la portée exacte de la concession et les
+raisons de la forme retenue.
 
 ---
 
@@ -613,6 +630,64 @@ Procédure, à faire dans cet ordre — le service refuse toute écriture entre 
 - **Le contrôle sur `API_KEY` vide est conservé et désormais testé** : sans lui,
   une installation dont la clé n'a pas été renseignée accepterait une clé vide,
   `compare_digest("", "")` étant vrai
+
+---
+
+### Décision 20 (2026-08-30)
+
+- **Contexte** : `scripts/update.sh` se termine par `sudo systemctl restart
+  maison-temp` puis deux contrôles de santé. Lancé hors terminal interactif,
+  `sudo` ne peut pas demander de mot de passe ; sous `set -e`, le déploiement
+  s'arrête là. Le service n'est pas redémarré — sans conséquence tant que la
+  livraison ne touche que le frontend, bloquant dès qu'elle touche `backend/` —
+  et surtout **le verdict de fin ne s'affiche jamais**, alors que tout le reste
+  s'est bien passé (issue #48)
+- **Choix** : une règle `NOPASSWD` dans `/etc/sudoers.d/maison-temp`, limitée à
+  cette seule commande. Ni `restart *`, ni `systemctl` en général
+- **La concession est plus étroite qu'il n'y paraît** : `debian` a déjà
+  `(ALL : ALL) ALL` et peut donc redémarrer n'importe quel service en tapant son
+  mot de passe. La règle n'ajoute aucun droit, elle retire l'exigence de mot de
+  passe sur une commande. Ce qu'elle change réellement : un processus tournant
+  sous `debian` pourrait redémarrer `maison-temp` sans s'authentifier, soit une
+  coupure de quelques secondes du dashboard. C'est le pire cas, et il est
+  accepté pour ce service
+- **Le chemin doit être celui que `sudo` résoudra, pas celui que l'utilisateur
+  résout** : `sudo` cherche la commande dans son `secure_path`
+  (`/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin`), le shell de
+  `debian` dans un `PATH` qui commence par `~/.local/bin` et `~/bin` — deux
+  répertoires qu'il peut écrire — et qui ne contient même pas `/usr/sbin`. Un
+  `command -v systemctl` y trouverait un homonyme et poserait soit une règle qui
+  ne s'applique jamais, soit un `NOPASSWD` sur un binaire réinscriptible par
+  `debian`, c'est-à-dire root sans mot de passe. `install.sh` parcourt donc les
+  répertoires système dans l'ordre de `secure_path`, et vérifie que le binaire
+  trouvé appartient à root sans être modifiable par d'autres. **Ce n'est pas la
+  justification qui figurait d'abord ici** : « une règle sur `systemctl` sans
+  chemin serait contournable via le `PATH` » est fausse — `visudo` refuse une
+  commande non qualifiée (`expected a fully-qualified path name`), le cas
+  n'existe pas. La review a relevé la fausse prémisse et le vrai défaut qu'elle
+  masquait
+- **Le fichier est validé avant d'être posé, et posé atomiquement** : `visudo
+  -cf` sur une copie temporaire, puis `install` sous un nom que `sudo` ignore (il
+  saute les fichiers dont le nom contient un point) et `mv` en place. Une erreur
+  de syntaxe dans `/etc/sudoers.d` verrouille `sudo` sur la machine, y compris
+  pour la réparer — et `install` écrivant dans le fichier de destination, une
+  interruption au mauvais moment y laisserait une ligne tronquée, soit exactement
+  la panne que le contrôle cherche à éviter
+- **Le contrôle final exécute la commande, il ne se contente pas de la
+  consulter** : `sudo -l <commande>` répond « autorisée ? », pas « autorisée sans
+  mot de passe ? ». `debian` ayant déjà `(ALL : ALL) ALL`, il répond oui à tout —
+  mesuré : `sudo -n -l systemctl restart nginx` sort en 0. Le contrôle initial ne
+  pouvait donc pas échouer, y compris si le fichier n'avait pas été posé. Il est
+  remplacé par `sudo -k` puis `sudo -n … restart maison-temp` : le `-k` est
+  indispensable, sans lui le cache d'authentification des étapes précédentes
+  ferait passer le test quelle que soit la règle. Vérifié après `sudo -k` :
+  `restart nginx`, `stop maison-temp` et `is-active maison-temp` sortent tous
+  les trois en 1. Le contrôle est rendu avec les autres smoke tests, en `✓`/`✗`,
+  sans faire échouer une installation par ailleurs réussie — c'est la leçon de
+  cette issue même
+- **Le motif est déjà en place sur ce serveur** pour d'autres projets
+  (`fail2ban-client status`, `smartctl`, `needrestart -b`) : c'est une
+  convention existante, pas une exception créée ici
 
 ---
 

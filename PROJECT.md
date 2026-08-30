@@ -28,6 +28,37 @@ Légende : 🔲 À faire · 🔄 En cours · ✅ Livré · ⚠️ Dette techniqu
 
 ## Changelog
 
+### 2026-08-30 — Issue #48 : le déploiement s'arrêtait avant son verdict
+
+- **Cause** : `scripts/update.sh` se termine par `sudo systemctl restart
+  maison-temp` puis deux contrôles de santé. Hors terminal interactif, `sudo` ne
+  peut pas demander de mot de passe et, sous `set -e`, le script sort en erreur
+  juste avant d'afficher son verdict — alors que le pull, les tests et le build
+  se sont bien passés. Il fallait refaire les vérifications à la main
+- **Règle sudo** : `/etc/sudoers.d/maison-temp` en `0440`, limitée à
+  `systemctl restart maison-temp`. Posée sur le serveur, et désormais posée aussi
+  par `scripts/install.sh` — sans quoi une machine reconstruite repartirait avec
+  le défaut
+- **`install.sh`** cherche `systemctl` dans les répertoires système, dans
+  l'ordre du `secure_path` de `sudo` : le `PATH` de `debian` commence par deux
+  répertoires qu'il peut écrire, un `command -v` y aurait pris un homonyme et
+  posé un `NOPASSWD` sur un binaire réinscriptible. Le fichier est validé par
+  `visudo -cf` avant d'être posé (une erreur de syntaxe dans `sudoers.d`
+  verrouille `sudo`) et posé atomiquement, `install` écrivant sinon dans le
+  fichier de destination
+- **Deux justifications initiales étaient fausses, la review les a prises en
+  défaut** : « une règle sans chemin serait contournable via le `PATH` » —
+  `visudo` refuse une commande non qualifiée, le cas n'existe pas — et le
+  contrôle final par `sudo -l`, qui ne pouvait pas échouer puisqu'il répond
+  « autorisée ? » et non « autorisée sans mot de passe ». Le contrôle exécute
+  désormais la commande après `sudo -k`, et il est rendu avec les autres smoke
+  tests
+- **Portée** : `debian` avait déjà `(ALL : ALL) ALL`. La règle n'ajoute aucun
+  droit, elle retire l'exigence de mot de passe sur une commande. Vérifié en
+  production : la seule règle `NOPASSWD` du projet est celle-ci, aucune ne porte
+  sur nginx
+- **PLAN.md** : § Configuration (la règle) et décision 20 (le raisonnement)
+
 ### 2026-08-30 — Issue #44 : une clé API non-ASCII renvoyait 500 au lieu de 401
 
 - **Cause** : `secrets.compare_digest` refuse les chaînes non-ASCII et lève une
