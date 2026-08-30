@@ -28,6 +28,39 @@ Légende : 🔲 À faire · 🔄 En cours · ✅ Livré · ⚠️ Dette techniqu
 
 ## Changelog
 
+### 2026-08-30 — Issue #44 : une clé API non-ASCII renvoyait 500 au lieu de 401
+
+- **Cause** : `secrets.compare_digest` refuse les chaînes non-ASCII et lève une
+  `TypeError`. Les deux points de contrôle lui passaient la valeur reçue telle
+  quelle. Un accent dans une clé — un doigt qui ripe dans la configuration d'un
+  boîtier Shelly suffit — transformait un refus propre en erreur serveur, sur un
+  chemin d'authentification et sans être authentifié
+- **`main.py`** : `_key_is_valid` compare les encodages UTF-8. Temps constant
+  conservé (c'est la forme naturelle de `compare_digest`, qui travaille sur des
+  octets), et une clé non-ASCII est traitée pour ce qu'elle est : invalide. Les
+  deux contrôles, jusqu'ici dupliqués à l'identique, sont factorisés — le défaut
+  existait en deux exemplaires
+- **Le chemin par en-tête est atteignable** malgré les apparences : un client
+  refuse d'émettre un en-tête non-ASCII, mais un en-tête transporte des octets,
+  que Starlette décode en latin-1. Le test l'exerce avec des octets bruts
+- **Un garde-fou écrit puis retiré** : le `try/except UnicodeEncodeError` initial
+  n'était atteignable par aucune entrée — une séquence invalide dans une URL est
+  remplacée par U+FFFD, un en-tête est décodé en latin-1. Vérifié sur
+  `%ED%A0%80` et `%FF%FE` avant de le supprimer plutôt que de le garder pour la
+  forme
+- **Trouvé au passage** : rien ne testait le cas d'une `API_KEY` non renseignée,
+  où `compare_digest("", "")` aurait accepté une clé vide. Le contrôle existait,
+  il est maintenant tenu par un test
+- **Tests** : 57 (6 ajoutés), dont un qui vérifie que **toutes** les clés fausses
+  donnent le même statut, quel que soit leur alphabet — un statut qui varie selon
+  la forme de la clé est un canal d'information. Mutations tuées : retour à la
+  comparaison de chaînes (3 échecs) · contrôle retiré du webhook (3) · toute clé
+  refusée (14) · toute clé acceptée (4) · contrôle d'`API_KEY` vide retiré (1).
+  **Un mutant survit et c'est irréductible** : remplacer `compare_digest` par
+  `==` ne change aucun comportement observable — la résistance aux attaques
+  temporelles ne se teste pas en boîte noire
+- PLAN.md v1.11 → v1.12 (décision 19). SPEC.md inchangée
+
 ### 2026-08-30 — Issue #37 : plafond sur la plage libre, lecture publique actée
 
 - **Cause** : `/api/releves/{slug}?from=&to=` n'imposait aucune borne à l'écart

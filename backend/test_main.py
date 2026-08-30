@@ -286,6 +286,72 @@ def test_releves_from_to_filters_range(client):
     assert all(r["temperature"] != 99.9 for r in data)
 
 
+def test_get_releve_non_ascii_key_rejected_not_crashed(client):
+    """Une clé accentuée levait une TypeError dans compare_digest : 500 au lieu
+    de 401, sur un chemin d'authentification et sans être authentifié (#44)."""
+    resp = client.get("/api/releve/salon", params={"temp": "21.0", "key": "clé-é"})
+    assert resp.status_code == 401
+    assert resp.json()["detail"] == "Clé API invalide"
+
+
+def test_post_releve_non_ascii_key_rejected_not_crashed(client):
+    """Le second point de contrôle, par en-tête, avait le même défaut.
+
+    Un en-tête HTTP ne transporte pas d'UTF-8 : le client refuse même de
+    l'émettre. Mais il transporte des octets, que Starlette décode en latin-1 —
+    la valeur qui arrive à `require_api_key` contient alors bien du non-ASCII.
+    C'est ce chemin-là qu'on exerce, avec des octets bruts.
+    """
+    resp = client.post(
+        "/api/releve/salon",
+        headers={"X-API-Key": "clé-é".encode("latin-1")},
+        json={"temp": 21.0, "hum": 50.0},
+    )
+    assert resp.status_code == 401
+
+
+def test_key_check_gives_the_same_status_whatever_the_wrong_key(client):
+    """Un statut qui varie selon la forme de la clé est un canal d'information.
+    Toutes les clés fausses doivent se ressembler, quel qu'en soit l'alphabet."""
+    fausses = [
+        "mauvaise-cle",          # ASCII, simplement fausse
+        "clé-é",                 # non-ASCII
+        "clé" * 500,             # non-ASCII et très longue
+        "日本語",                  # hors alphabet latin
+        "\x00binaire",           # octet nul
+        "",                      # vide
+    ]
+    statuts = {
+        client.get("/api/releve/salon", params={"temp": "21.0", "key": k}).status_code
+        for k in fausses
+    }
+    assert statuts == {401}
+
+
+def test_key_check_rejects_invalid_utf8_in_the_url(client):
+    """Une séquence d'octets invalide est remplacée par U+FFFD au décodage : elle
+    arrive donc comme une chaîne, non-ASCII, et doit être refusée proprement."""
+    resp = client.get("/api/releve/salon?temp=21.0&key=%ED%A0%80")
+    assert resp.status_code == 401
+
+
+def test_key_check_refuses_everything_when_no_key_is_configured(client, monkeypatch):
+    """Sans ce contrôle, une installation dont l'API_KEY n'a pas été renseignée
+    accepterait une clé vide — compare_digest('', '') est vrai."""
+    import main as main_module
+    monkeypatch.setattr(main_module, "API_KEY", "")
+    for k in ["", "test-key", "n'importe quoi"]:
+        resp = client.get("/api/releve/salon", params={"temp": "21.0", "key": k})
+        assert resp.status_code == 401, k
+
+
+def test_key_check_still_accepts_the_right_key(client):
+    """Le garde-fou ne doit pas rejeter la bonne clé : sans ce test, renvoyer
+    False en toutes circonstances ferait passer tous les autres."""
+    resp = client.get("/api/releve/salon", params={"temp": "21.0", "key": "test-key"})
+    assert resp.status_code == 200
+
+
 def test_releves_from_without_to_rejected(client):
     resp = client.get("/api/releves/salon", params={"from": "2026-01-15T00:00:00.000Z"})
     assert resp.status_code == 400

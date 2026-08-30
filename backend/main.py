@@ -35,8 +35,30 @@ _meteo_lock = asyncio.Lock()
 api_key_header = APIKeyHeader(name="X-API-Key", auto_error=True)
 
 
+def _key_is_valid(key: str) -> bool:
+    """Comparaison à temps constant, tolérante à ce qui n'est pas une clé.
+
+    `secrets.compare_digest` refuse les chaînes contenant du non-ASCII et lève
+    une `TypeError` : lui passer la valeur reçue telle quelle transformait un
+    refus en 500, sur un chemin d'authentification et sans être authentifié
+    (issue #44). Comparer les encodages UTF-8 conserve la propriété de temps
+    constant et traite une clé non-ASCII pour ce qu'elle est : une clé invalide.
+
+    L'encodage ne peut pas échouer ici : une séquence d'octets invalide dans une
+    URL est remplacée par U+FFFD au décodage, et un en-tête est décodé en
+    latin-1 — ni l'un ni l'autre ne produit de demi-codet isolé. Vérifié sur
+    %ED%A0%80 et %FF%FE, qui donnent bien 401 et non 500.
+
+    Le contrôle sur API_KEY vide est indispensable : sans lui, une installation
+    dont la clé n'a pas été renseignée accepterait une clé vide.
+    """
+    if not API_KEY:
+        return False
+    return secrets.compare_digest(key.encode("utf-8"), API_KEY.encode("utf-8"))
+
+
 def require_api_key(key: str = Security(api_key_header)):
-    if not API_KEY or not secrets.compare_digest(key, API_KEY):
+    if not _key_is_valid(key):
         raise HTTPException(status_code=401, detail="Clé API invalide")
     return key
 
@@ -157,7 +179,7 @@ async def get_releve(slug: str, key: str, temp: str | None = None, hum: str | No
     Usage temp  : /api/releve/salon?temp=${ev.tC}&key=TOKEN
     Usage hum   : /api/releve/salon?hum=${ev.rh}&key=TOKEN
     """
-    if not API_KEY or not secrets.compare_digest(key, API_KEY):
+    if not _key_is_valid(key):
         raise HTTPException(status_code=401, detail="Clé API invalide")
     temp_val = _parse_shelly_value(temp, TEMP_MIN, TEMP_MAX, "Température")
     hum_val = clamp_humidity(
