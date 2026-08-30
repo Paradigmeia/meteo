@@ -1,6 +1,6 @@
 # PLAN.md — maison-temp
 
-**Version** : 1.19
+**Version** : 1.20
 **Date** : 2026-08-30
 **Référence** : SPEC.md v1.9
 
@@ -445,6 +445,16 @@ Ce que la maquette montre et que le code doit reproduire :
   `cd /home/debian/meteo && git pull origin main` (le checkout de production n'a
   pas encore le fichier), puis
   `sudo cp /home/debian/meteo/nginx/maison-temp.conf /etc/nginx/sites-available/maison-temp && sudo nginx -t && sudo systemctl reload nginx`
+
+- **`Permissions-Policy` ajouté (issue #54)**, dans le même bloc `server` que les
+  six autres — un `add_header` posé ailleurs les annulerait tous. Il ne bloque
+  rien d'atteignable aujourd'hui : le navigateur n'accorde jamais ces API sans
+  appel explicite et il n'y a pas d'iframe. C'est une déclaration d'intention,
+  au même titre que la CSP un cran plus haut. `interest-cohort` (FLoC) est
+  volontairement omis, la fonctionnalité étant abandonnée. Attention si la v2
+  veut la géolocalisation du navigateur : `geolocation=()` la bloquerait, et le
+  message d'erreur ne pointerait pas vers cet en-tête. Vérifié servi sur une
+  page, sur l'API et sur une réponse 429
 
 ### Décision 17 (2026-08-30)
 
