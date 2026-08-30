@@ -46,7 +46,10 @@ class ReleverPayload(BaseModel):
 class DernierReleve(BaseModel):
     temperature: Optional[float]
     humidite: Optional[float]
+    # Le plus récent des deux horodatages ci-dessous : le dernier signe de vie de
+    # la sonde, quelle que soit la grandeur qui l'a donné (issue #43).
     recu_le: Optional[datetime]
+    recu_le_temp: Optional[datetime] = None
     recu_le_hum: Optional[datetime] = None
 
 

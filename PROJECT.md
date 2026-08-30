@@ -28,6 +28,34 @@ Légende : 🔲 À faire · 🔄 En cours · ✅ Livré · ⚠️ Dette techniqu
 
 ## Changelog
 
+### 2026-08-30 — Issue #43 : `/api/sondes` jetait le timestamp qu'il venait de calculer
+
+- **Cause** : `get_sondes` calculait le plus récent des deux horodatages puis
+  construisait le modèle avec `recu_le_temp or recu_le_hum`, qui renvoie toujours
+  celui de la température dès qu'il existe. Une sonde dont seule l'humidité
+  remonte encore — cas déjà vu ici, les deux events Shelly étant des actions
+  séparées — affichait un horodatage figé et un badge « Hors ligne » indu alors
+  que des données arrivaient
+- **`main.py`** : `recu_le` est le maximum des deux, comparé sur les `datetime`
+  et non sur les chaînes ISO. `recu_le_temp` rejoint `recu_le_hum` dans la
+  réponse : `recu_le` étant un maximum, il ne dit plus de quand date chaque
+  grandeur
+- **`SondeCard.jsx`** : le marqueur d'âge qui n'existait que pour l'humidité vaut
+  pour les deux grandeurs. Sans lui, le correctif backend aurait remplacé un
+  badge indu par un silence — la card aurait paru saine avec une température
+  vieille de plusieurs mois
+- **Tests** : 8 backend et 16 frontend (8 cas × les deux dispositions de card).
+  Suites à 65 et 54. Six mutations vérifiées de chaque côté, toutes attrapées
+- **Corrigé après review** : le marqueur cassait la mise en page à 375 px — et
+  les deux sondes actives étant seules dans leur section, 100 % des cards sont
+  rendues en pleine largeur, la disposition la plus dégradée. Deux tests ne
+  distinguaient pas une inversion température/humidité. La justification
+  « comparaison sur les `datetime` » n'était couverte par aucun test. Et
+  `toFixed` sur une température absente faisait disparaître le dashboard
+- **Vérifié visuellement à 375 px**, avant et après : hauteurs de card mesurées,
+  absence de débordement horizontal, captures des quatre états dans les deux
+  dispositions
+
 ### 2026-08-30 — Issue #48 : le déploiement s'arrêtait avant son verdict
 
 - **Cause** : `scripts/update.sh` se termine par `sudo systemctl restart

@@ -251,16 +251,34 @@ async def get_sondes():
     result = []
     for slug, nom, actif, temp, recu_le_temp, hum, recu_le_hum in rows:
         dernier = None
-        recu_le = recu_le_temp or recu_le_hum
-        if recu_le is not None:
-            # Prend le timestamp le plus récent des deux
-            if recu_le_temp and recu_le_hum:
-                recu_le = recu_le_temp if recu_le_temp > recu_le_hum else recu_le_hum
+        # Les deux grandeurs viennent de deux lignes distinctes : le Shelly les
+        # envoie en deux actions séparées, et l'une peut cesser de remonter sans
+        # l'autre. `recu_le` répond à « la sonde donne-t-elle encore signe de
+        # vie ? » — c'est sur lui que le dashboard pose son badge « Hors ligne »
+        # — donc c'est le plus récent des deux, pas celui de la température.
+        # L'ancien code calculait ce maximum puis le jetait, et renvoyait
+        # `recu_le_temp or recu_le_hum` : une sonde dont seule l'humidité remonte
+        # encore paraissait figée et hors ligne (issue #43).
+        #
+        # La comparaison porte sur les datetime et non sur les chaînes ISO :
+        # aujourd'hui toutes les lignes ont le même format, donc l'ordre
+        # lexicographique coïncide avec l'ordre chronologique, mais rien ne le
+        # garantit — `_parse_recu_le` ramène par exemple un horodatage naïf à
+        # UTC, ce qu'une comparaison de chaînes ignorerait. Le `ORDER BY recu_le
+        # DESC` de la requête ci-dessus, lui, reste lexicographique : c'est le
+        # même sujet, côté SQL, et il est traité par l'issue #59.
+        dt_temp = _parse_recu_le(recu_le_temp) if recu_le_temp else None
+        dt_hum = _parse_recu_le(recu_le_hum) if recu_le_hum else None
+        if dt_temp is not None or dt_hum is not None:
             dernier = DernierReleve(
                 temperature=_finite_or_none(temp),
                 humidite=_finite_or_none(hum),
-                recu_le=_parse_recu_le(recu_le_temp or recu_le_hum),
-                recu_le_hum=_parse_recu_le(recu_le_hum) if recu_le_hum else None,
+                recu_le=max(dt for dt in (dt_temp, dt_hum) if dt is not None),
+                # Exposés séparément : `recu_le` étant désormais un maximum, il
+                # ne dit plus de quand date chaque grandeur, et la card a besoin
+                # de cette information pour signaler celle des deux qui traîne.
+                recu_le_temp=dt_temp,
+                recu_le_hum=dt_hum,
             )
         result.append(SondeOut(slug=slug, nom=nom, actif=actif, dernier_releve=dernier))
     return result

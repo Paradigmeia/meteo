@@ -1,6 +1,7 @@
 import os
 import sqlite3
 import tempfile
+from datetime import datetime
 
 import pytest
 from fastapi.testclient import TestClient
@@ -553,6 +554,135 @@ def test_sondes_survives_infinite_last_reading(client, grandeur):
     assert sonde["dernier_releve"] is not None
     assert sonde["dernier_releve"][grandeur] is None
     assert sonde["dernier_releve"]["recu_le"] is not None
+
+
+def _sonde_de_test(slug):
+    """Crée une sonde active dédiée, pour ne pas dépendre de l'état laissé par
+    les autres tests — la base est partagée par tout le module."""
+    conn = sqlite3.connect(config.DATABASE_PATH)
+    conn.execute(
+        "INSERT OR IGNORE INTO sondes (slug, nom, actif) VALUES (?, ?, 1)", (slug, slug)
+    )
+    conn.commit()
+    conn.close()
+    return slug
+
+
+def _dernier_releve(client, slug):
+    resp = client.get("/api/sondes")
+    assert resp.status_code == 200
+    sonde = next(s for s in resp.json() if s["slug"] == slug)
+    return sonde["dernier_releve"]
+
+
+VIEUX = "2026-01-01T10:00:00+00:00"
+RECENT = "2026-06-01T10:00:00+00:00"
+
+
+def _dt(valeur):
+    """Compare des instants, pas leur écriture : la base stocke `+00:00` et
+    Pydantic sérialise en `Z`."""
+    if valeur is None:
+        return None
+    return datetime.fromisoformat(valeur.replace("Z", "+00:00"))
+
+
+def test_sondes_recu_le_suit_l_humidite_quand_elle_est_la_plus_recente(client):
+    """Le cas de l'issue #43 : la température ne remonte plus, l'humidité si.
+
+    Sans le correctif, `recu_le` renvoyait l'horodatage de la température quelle
+    que soit son ancienneté — la card affichait un horodatage figé et un badge
+    « Hors ligne » indu alors que des données arrivaient.
+    """
+    slug = _sonde_de_test("test-43-hum-recente")
+    _insert_releve(slug, 19.0, None, VIEUX)
+    _insert_releve(slug, None, 55.0, RECENT)
+    dr = _dernier_releve(client, slug)
+    assert _dt(dr["recu_le"]) == _dt(RECENT)
+    # Les deux grandeurs restent lisibles, chacune avec sa date.
+    assert dr["temperature"] == 19.0 and _dt(dr["recu_le_temp"]) == _dt(VIEUX)
+    assert dr["humidite"] == 55.0 and _dt(dr["recu_le_hum"]) == _dt(RECENT)
+
+
+def test_sondes_recu_le_suit_la_temperature_quand_elle_est_la_plus_recente(client):
+    """Le cas symétrique, que l'ancien code traitait correctement : il doit le
+    rester, sans quoi le correctif aurait déplacé le défaut au lieu de le
+    corriger."""
+    slug = _sonde_de_test("test-43-temp-recente")
+    _insert_releve(slug, None, 55.0, VIEUX)
+    _insert_releve(slug, 19.0, None, RECENT)
+    dr = _dernier_releve(client, slug)
+    assert _dt(dr["recu_le"]) == _dt(RECENT)
+    assert _dt(dr["recu_le_temp"]) == _dt(RECENT) and _dt(dr["recu_le_hum"]) == _dt(VIEUX)
+
+
+def test_sondes_recu_le_avec_la_seule_humidite(client):
+    """Une sonde qui n'a jamais envoyé de température : `recu_le` ne peut venir
+    que de l'humidité, et `recu_le_temp` doit être absent plutôt qu'inventé."""
+    slug = _sonde_de_test("test-43-hum-seule")
+    _insert_releve(slug, None, 55.0, RECENT)
+    dr = _dernier_releve(client, slug)
+    assert _dt(dr["recu_le"]) == _dt(RECENT)
+    assert dr["recu_le_temp"] is None
+    assert _dt(dr["recu_le_hum"]) == _dt(RECENT)
+    assert dr["temperature"] is None
+
+
+def test_sondes_recu_le_avec_la_seule_temperature(client):
+    slug = _sonde_de_test("test-43-temp-seule")
+    _insert_releve(slug, 19.0, None, RECENT)
+    dr = _dernier_releve(client, slug)
+    assert _dt(dr["recu_le"]) == _dt(RECENT)
+    assert _dt(dr["recu_le_temp"]) == _dt(RECENT)
+    assert dr["recu_le_hum"] is None
+    assert dr["humidite"] is None
+
+
+def test_sondes_recu_le_compare_des_instants_pas_des_chaines(client):
+    """Deux décalages horaires différents, où l'ordre des chaînes ISO contredit
+    l'ordre chronologique.
+
+    `09:00+02:00` s'écrit après `08:00+00:00` mais vaut 07:00 UTC, une heure plus
+    tôt. Une comparaison lexicographique — celle du code d'origine — élirait la
+    température. Ce test est le seul qui distingue les deux, la base n'ayant
+    aujourd'hui que des lignes au même format.
+    """
+    slug = _sonde_de_test("test-43-fuseaux")
+    _insert_releve(slug, 19.0, None, "2026-06-01T09:00:00+02:00")
+    _insert_releve(slug, None, 55.0, "2026-06-01T08:00:00+00:00")
+    dr = _dernier_releve(client, slug)
+    assert _dt(dr["recu_le"]) == _dt("2026-06-01T08:00:00+00:00")
+
+
+def test_sondes_recu_le_tolere_un_horodatage_sans_fuseau(client):
+    """Une ligne écrite sans fuseau doit être lue comme de l'UTC.
+
+    Il n'y en a aucune aujourd'hui, mais la colonne est du TEXT libre. Sans la
+    normalisation faite par `_parse_recu_le`, comparer un `datetime` naïf à un
+    `datetime` tz-aware lève une `TypeError` et `/api/sondes` répond 500 — donc
+    dashboard entièrement vide, pour une seule ligne mal formée.
+    """
+    slug = _sonde_de_test("test-43-naif")
+    _insert_releve(slug, 19.0, None, "2026-06-01T09:00:00")
+    _insert_releve(slug, None, 55.0, "2026-06-01T08:00:00+00:00")
+    dr = _dernier_releve(client, slug)
+    assert _dt(dr["recu_le"]) == _dt("2026-06-01T09:00:00+00:00")
+
+
+def test_sondes_sans_aucun_releve(client):
+    """Aucune ligne : `dernier_releve` reste nul plutôt que d'être un objet vide
+    — la card affiche « Aucune donnée »."""
+    slug = _sonde_de_test("test-43-vide")
+    assert _dernier_releve(client, slug) is None
+
+
+def test_sondes_recu_le_horodatages_egaux(client):
+    """Les deux grandeurs arrivent dans le même relevé, cas nominal du POST :
+    aucune des deux ne traîne, et `recu_le` vaut cet horodatage."""
+    slug = _sonde_de_test("test-43-egaux")
+    _insert_releve(slug, 19.0, 55.0, RECENT)
+    dr = _dernier_releve(client, slug)
+    assert _dt(dr["recu_le"]) == _dt(dr["recu_le_temp"]) == _dt(dr["recu_le_hum"]) == _dt(RECENT)
 
 
 def test_meteo_non_finite_upstream_is_neutralised(client, monkeypatch):
