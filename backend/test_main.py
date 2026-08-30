@@ -265,6 +265,46 @@ def _insert_releve(slug, temp, hum, recu_le):
     conn.close()
 
 
+# --- Ruptures de comportement de starlette 1.x (issue #38) ---
+
+
+def test_post_releve_sans_content_type_est_rejete(client):
+    """starlette 1.x refuse un corps JSON dont l'en-tête `Content-Type` manque.
+
+    Sur la pile d'avant la remontée, la même requête passait en 200. Aucun client
+    actuel n'est concerné — le Shelly emprunte le GET `?key=`, `install.sh` pose
+    l'en-tête, le frontend ne poste rien — mais c'est une rupture d'API
+    silencieuse, et le Shelly n'émettant qu'une fois, un futur client POST sans
+    en-tête perdrait ses relevés sans bruit.
+
+    La suite y était structurellement aveugle : tous les autres tests passent par
+    `json=`, qui pose le `Content-Type` lui-même.
+    """
+    resp = client.post(
+        "/api/releve/salon",
+        content=b'{"temp": 21.0}',
+        headers={"X-API-Key": "test-key"},
+    )
+    assert resp.status_code == 422
+
+    # Témoin : le même corps avec l'en-tête passe toujours.
+    ok = client.post(
+        "/api/releve/salon", json={"temp": 21.0}, headers={"X-API-Key": "test-key"}
+    )
+    assert ok.status_code == 200
+
+
+def test_post_releve_sans_cle_du_tout(client):
+    """Clé absente : 401 depuis starlette 1.x, 403 avant.
+
+    Chemin distinct d'une clé fausse — c'est `APIKeyHeader` qui répond, avant
+    `_key_is_valid`. Le jeu de clés fausses l'exclut volontairement ; sans ce
+    test, le changement serait passé inaperçu.
+    """
+    resp = client.post("/api/releve/salon", json={"temp": 21.0})
+    assert resp.status_code == 401
+
+
 def test_releves_period_90d_and_1an_accepted(client):
     assert client.get("/api/releves/salon", params={"period": "90d"}).status_code == 200
     assert client.get("/api/releves/salon", params={"period": "1an"}).status_code == 200
@@ -345,7 +385,7 @@ def test_key_check_gives_the_same_status_whatever_the_wrong_key(client):
             headers={"X-API-Key": k.encode("utf-8", "replace")},
             json={"temp": 21.0},
         ).status_code
-        for k in fausses if k  # une valeur vide donne 403 (en-tête absent), cf. APIKeyHeader
+        for k in fausses if k  # clé absente : chemin distinct, cf. test dédié
     }
     assert statuts_entete == {401}
 

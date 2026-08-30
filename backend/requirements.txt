@@ -1,5 +1,16 @@
-fastapi==0.115.0
-uvicorn[standard]==0.30.0
-python-dotenv==1.0.1
-aiosqlite==0.20.0
-httpx==0.27.0
+# Versions figées, comme dans le reste du projet : le déploiement doit être
+# reproductible. Remontées le 2026-08-30 (issue #38).
+#
+# `starlette` est figé explicitement bien qu'il soit transitif. fastapi 0.141.1
+# le déclare `starlette>=0.46.0`, sans borne haute : sans cette ligne, une
+# installation neuve prendrait la starlette du jour et non celle qui a été
+# testée — deux installations à deux dates donneraient deux piles différentes.
+# C'est le mécanisme même qui a créé cette issue, un pin fastapi décidant seul
+# de la version de starlette ; le remplacer par une absence de borne ne serait
+# pas un progrès.
+fastapi==0.141.1
+starlette==1.6.0
+uvicorn[standard]==0.52.4
+python-dotenv==1.2.3
+aiosqlite==0.22.1
+httpx==0.28.1

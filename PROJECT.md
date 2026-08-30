@@ -28,6 +28,54 @@ Légende : 🔲 À faire · 🔄 En cours · ✅ Livré · ⚠️ Dette techniqu
 
 ## Changelog
 
+### 2026-08-30 — Issue #38 : remontée des dépendances Python
+
+- **Cause du pin** : `fastapi==0.115.0` retenait `starlette 0.38.6`, concernée par
+  CVE-2024-47874. **Non exploitable ici** — l'application n'expose aucun endpoint
+  multipart, ses quatre routes prennent des paramètres de query ou un corps JSON.
+  C'était de l'hygiène de dépendances, pas une vulnérabilité
+- **Remontées** : fastapi 0.115.0 → 0.141.1, starlette 0.38.6 → **1.6.0**,
+  uvicorn 0.30.0 → 0.52.4, httpx 0.27.0 → 0.28.1, aiosqlite 0.20.0 → 0.22.1,
+  python-dotenv 1.0.1 → 1.2.3. Versions toujours figées : le déploiement doit
+  rester reproductible
+- **starlette passe une version majeure**, donc les 75 tests ne suffisaient pas à
+  eux seuls. Test de fumée sur une copie de la base de production, pile neuve
+  contre service en place : **5 requêtes sur 5 rendent des réponses octet pour
+  octet identiques**, et les six cas d'erreur durs des issues précédentes sont
+  inchangés — période invalide et plage absurde (#37) en 400, date non
+  normalisable (#59) en 400, clé fausse et clé accentuée (#44) en 401, sonde
+  inconnue en 404. Aucun traceback
+- **Corrigé après review adversariale** :
+  - **`starlette` n'était pas figé**, alors que le fichier promet des versions
+    figées et que c'est *le* paquet que la PR remonte. `fastapi 0.141.1` le
+    déclare `starlette>=0.46.0`, **sans borne haute** : une installation neuve
+    aurait pris la starlette du jour, pas celle qui a été testée. C'est le
+    mécanisme même qui a créé cette issue — un pin fastapi décidant seul de la
+    version de starlette — et le remplacer par une absence de borne n'aurait pas
+    été un progrès. `starlette==1.6.0` ajouté explicitement
+  - **deux ruptures de comportement de starlette 1.x** que les 75 tests ne
+    voyaient pas, désormais couvertes : un corps JSON **sans en-tête
+    `Content-Type`** passait en 200 et rend maintenant 422 — la suite y était
+    structurellement aveugle, tous ses POST passant par `json=` qui pose
+    l'en-tête ; et une **clé d'API absente** rend 401 au lieu de 403. Aucun
+    client actuel n'est concerné, mais le Shelly n'émettant qu'une fois, un futur
+    client POST sans en-tête perdrait ses relevés sans bruit. Les deux tests
+    échouent sur l'ancienne pile et passent sur la nouvelle
+  - **la justification était imprécise** : « CVE-2024-47874, corrigée en 0.40.0 »
+    sous-vendait la remontée. L'audit OSV de la review montre que 0.38.6 porte
+    plusieurs avis au-delà de celui-ci, dont un empoisonnement de `request.url.path`
+    par en-tête `Host` non validé, sans rapport avec le multipart — et que 0.40.0
+    en porterait encore. `pip-audit` sur la pile retenue ne remonte **aucun avis**
+    sur les dépendances de l'application
+- **Tests** : 77 backend (2 ajoutés), 54 frontend inchangés
+- **Signalé, non traité** : `starlette.testclient` avertit que l'usage d'`httpx`
+  y est déprécié au profit d'`httpx2` ; et `scripts/update.sh` fait un
+  `pip install` **sans `--upgrade`** dans le venv existant, ce qui laisse une
+  dizaine de paquets transitifs en arrière — la production ne tournerait donc pas
+  exactement sur la pile testée. Les 77 tests passent dans cet état (vérifié en
+  review), mais ça mérite un fichier verrouillé complet plutôt qu'un `--upgrade`
+  posé à la va-vite
+
 ### 2026-08-30 — Issue #54 : `Permissions-Policy`
 
 - Une ligne d'en-tête dans le bloc `server` HTTPS, à côté des six autres. Ne
