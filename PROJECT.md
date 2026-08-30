@@ -28,6 +28,51 @@ Légende : 🔲 À faire · 🔄 En cours · ✅ Livré · ⚠️ Dette techniqu
 
 ## Changelog
 
+### 2026-08-30 — Issue #60 : limitation de débit sur les lectures, et l'IP qu'on croyait compter
+
+- **Ce qu'on protège** : pas la disponibilité du dashboard, mais les relevés. Le
+  Shelly n'émet qu'une fois et ne réessaie pas (décision 6) — une boucle
+  d'événements occupée, ce sont des mesures définitivement perdues
+- **Un prérequis que l'issue ne voyait pas** : le site est derrière Cloudflare et
+  aucun `set_real_ip_from` n'était configuré. `$binary_remote_addr` était donc
+  l'IP d'un nœud de bordure — **202 IP distinctes** relevées sur les lectures
+  dans `access.log`. Une limitation posée là-dessus aurait été **exactement à
+  l'envers** : trop stricte pour des visiteurs légitimes groupés sur un même
+  nœud, presque sans effet sur un client réparti sur 202 nœuds. Les plages
+  Cloudflare sont posées dans le bloc `server`, pas en contexte http où elles
+  vaudraient pour tous les sites de la machine
+- **Le webhook n'est pas limité, et la raison est plus forte que « ne touchons
+  pas au webhook »** : une fois l'IP réelle rétablie, le Shelly émet depuis l'IP
+  publique du domicile, la **même** que les navigateurs de la maison. Un compteur
+  partagé ferait jeter des relevés par les gens en train de consulter le
+  dashboard. La séparation tient à ce que `^~ /api/releve/` est une location
+  distincte, qui n'hérite de rien
+- **10r/s, rafale 20, `nodelay`, statut 429** : dimensionné sur mesures —
+  l'interface rafraîchit toutes les 30 s et la vue Analyse tire en `Promise.all`,
+  donc la rafale légitime est simultanée ; un chargement de page fait ~6 requêtes ;
+  le maximum observé sur six mois d'`access.log` est de 5 req/s
+- **Vérifié sans toucher à la production**, avec un nginx en espace utilisateur :
+  rafale légitime de 20 requêtes simultanées → **20 × 200** ; client emballé →
+  **35 × 429** ; et pendant une inondation où **1 953 lectures sont refusées, les
+  10 webhooks émis en parallèle passent tous en 200**. Les deux sens du
+  rétablissement d'IP sont prouvés : derrière un pair de confiance, deux clients
+  réels ont deux quotas distincts ; en direct, l'en-tête `CF-Connecting-IP` est
+  ignoré et ne permet aucune usurpation
+- **Le fichier du dépôt lui-même** passe `nginx -t` (seuls certificats, journaux
+  et ports d'écoute substitués) et son aiguillage a été exercé tel quel : 60
+  requêtes sur `/api/releve/` traversent sans jamais être limitées, les lectures
+  le sont. Production intacte, 8 138 relevés avant comme après
+- **Agrégation hors boucle : remise à plus tard avec un seuil chiffré**, comme la
+  DoD l'autorise. Mesuré : 6,6 ms aujourd'hui sur `exterieur` (5 612 lignes),
+  27,7 ms à 21 840 lignes. **Mais le seuil est proche** — `exterieur` accumule
+  79 relevés/jour, les 10 ms tombent vers fin septembre 2026 et les 27,7 ms vers
+  mars 2027. L'issue présentait ce chiffre comme une projection à cinq ans ;
+  c'est en réalité l'échéance d'un historique d'un an à la cadence actuelle
+- **Non déployé** : la configuration nginx vit dans `/etc/nginx/sites-available/`,
+  root, et la seule règle `NOPASSWD` du projet porte sur `systemctl restart
+  maison-temp`. La copie et le `nginx -t` / `reload` restent à faire à la main
+- PLAN.md v1.15 → v1.16 (décision 23). SPEC.md inchangée
+
 ### 2026-08-30 — Issue #59 : la fenêtre validée n'était pas la fenêtre lue
 
 - **Cause** : `/api/releves/{slug}?from=&to=` construisait ses bornes avec
