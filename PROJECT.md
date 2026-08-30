@@ -68,6 +68,9 @@ Légende : 🔲 À faire · 🔄 En cours · ✅ Livré · ⚠️ Dette techniqu
     en porterait encore. `pip-audit` sur la pile retenue ne remonte **aucun avis**
     sur les dépendances de l'application
 - **Tests** : 77 backend (2 ajoutés), 54 frontend inchangés
+- **Déployé le 2026-08-30** (`2d77420`) : starlette 1.6.0 et fastapi 0.141.1
+  effectivement installés en production, les quatre routes en 200, les cas durs
+  de #37/#44/#59 inchangés (400, 401, 404), aucun traceback
 - **Signalé, non traité** : `starlette.testclient` avertit que l'usage d'`httpx`
   y est déprécié au profit d'`httpx2` ; et `scripts/update.sh` fait un
   `pip install` **sans `--upgrade`** dans le venv existant, ce qui laisse une
