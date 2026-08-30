@@ -68,10 +68,44 @@ Légende : 🔲 À faire · 🔄 En cours · ✅ Livré · ⚠️ Dette techniqu
   79 relevés/jour, les 10 ms tombent vers fin septembre 2026 et les 27,7 ms vers
   mars 2027. L'issue présentait ce chiffre comme une projection à cinq ans ;
   c'est en réalité l'échéance d'un historique d'un an à la cadence actuelle
+- **Corrigé après review adversariale**, trois défauts réels :
+  - **la limitation ne s'appliquait pas en IPv6.** `$binary_remote_addr` porte
+    sur seize octets, donc sur des /128 : 60 requêtes depuis 60 adresses d'un
+    même /64 passaient **toutes**, quand une seule adresse était bien limitée.
+    Un client avec un /64 — l'allocation résidentielle standard — n'était pas
+    limité du tout. Une `map` regroupe désormais par /64, formes compressées
+    comprises, et le sur-groupement est vérifié absent (60 /64 distincts et 60
+    IPv4 distinctes passent)
+  - **le webhook n'avait aucun compteur, pas seulement un compteur séparé.** La
+    PR présentait « 60 requêtes traversent sans jamais être limitées » comme une
+    réussite, alors que c'est un chemin non authentifié et sans borne vers la
+    même boucle mono-worker que celle qu'on protège. Il a maintenant sa propre
+    zone, à 1600× la cadence réelle du Shelly
+  - **CrowdSec n'avait pas été regardé**, et c'est lui l'IPS de cette machine :
+    actif avec son bouncer nftables, il lit `/var/log/nginx/*.log` et sa
+    `cdn-whitelist` neutralise aujourd'hui les IP Cloudflare. Écrire l'IP client
+    réelle dans les journaux les rendait éligibles aux scénarios, sans bénéfice
+    (le trafic HTTP arrive par les IP de Cloudflare, un blocage nftables ne
+    filtrerait rien) et avec un risque réel : l'IP publique du domicile devenait
+    bannissable, et le blocage aurait coupé **tout** le trafic entrant depuis la
+    maison, SSH compris. Les journaux écrivent donc `$realip_remote_addr` —
+    exactement ce qu'ils écrivent aujourd'hui. Vérifié : 0 ligne portant une IP
+    cliente rétablie
+- **Deux chiffres du dimensionnement étaient faux** : le « 5 req/s maximum » était
+  mesuré **par IP de bordure**, soit sur la clé d'avant le correctif, pour
+  dimensionner une limite portant sur celle d'après — le majorant réel, toutes IP
+  confondues, est de 7 req/s ; et un chargement de dashboard fait **4 requêtes**
+  et non ~6, il n'y a que deux sondes actives
+- **Un de mes harnais de test était faux** et donnait des résultats rassurants :
+  `return 200` court-circuite la requête à la phase *rewrite*, avant que
+  `limit_req` (phase *preaccess*) ne s'exécute. Puis un second harnais keyait
+  tout sur `127.0.0.1`, absent des pairs de confiance du fichier réel
+- **Seuil de l'agrégation suivi en issue #67**, ouverte : la PR posait un
+  déclencheur (fin septembre 2026) sans rien pour le rattraper
 - **Non déployé** : la configuration nginx vit dans `/etc/nginx/sites-available/`,
   root, et la seule règle `NOPASSWD` du projet porte sur `systemctl restart
   maison-temp`. La copie et le `nginx -t` / `reload` restent à faire à la main
-- PLAN.md v1.15 → v1.16 (décision 23). SPEC.md inchangée
+- PLAN.md v1.15 → v1.17 (décision 23). SPEC.md inchangée
 
 ### 2026-08-30 — Issue #59 : la fenêtre validée n'était pas la fenêtre lue
 
