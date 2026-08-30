@@ -20,6 +20,20 @@ export const AVG_6H_DASH = '8 4'
 
 export const PERIOD_HOURS = { '12h': 12, '24h': 24, '7d': 168, '30d': 720, '90d': 2160, '1an': 8760 }
 
+// Plafond de la plage libre, en heures. Doit rester aligné sur MAX_RANGE_HOURS
+// de backend/main.py : le serveur refuse au-delà par un 400 (issue #37), et une
+// divergence se traduirait par un bandeau d'échec là où l'interface devrait
+// expliquer ce qui ne va pas. C'est la plus longue période prédéfinie.
+export const MAX_RANGE_HOURS = 8760
+
+// La borne est volontairement inclusive : une plage d'exactement un an passe,
+// des deux côtés — le serveur rejette sur `>`, pas sur `>=`.
+export function isRangeTooLong(customRange) {
+  if (!customRange?.from || !customRange?.to) return false
+  const heures = (new Date(customRange.to) - new Date(customRange.from)) / 3_600_000
+  return Number.isFinite(heures) && heures > MAX_RANGE_HOURS
+}
+
 export function rangeBoundsMs(quickCode, customRange) {
   if (customRange) {
     return { start: new Date(customRange.from).getTime(), end: new Date(customRange.to).getTime() }

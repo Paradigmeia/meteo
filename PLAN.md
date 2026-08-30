@@ -1,8 +1,8 @@
 # PLAN.md — maison-temp
 
-**Version** : 1.10
+**Version** : 1.11
 **Date** : 2026-08-29
-**Référence** : SPEC.md v1.7
+**Référence** : SPEC.md v1.8
 
 ---
 
@@ -524,6 +524,41 @@ Procédure, à faire dans cet ordre — le service refuse toute écriture entre 
 7. Si l'étape 5 ne voit arriver aucun relevé, chercher les 401 dans
    `/var/log/nginx/access.log` — le canal `journalctl -u maison-temp`, réflexe
    habituel, ne les montre plus depuis `--no-access-log`
+
+### Décision 18 (2026-08-30)
+
+- **Contexte** : `/api/releves/{slug}?from=&to=` n'imposait aucune borne à
+  l'écart entre les deux dates. `?from=1970-01-01&to=2100-01-01` faisait lire
+  toutes les lignes de la sonde et les agréger en mémoire, sur une route **non
+  authentifiée**, pour un résultat que personne ne regarde (issue #37)
+- **Choix** : plafond à `MAX_RANGE_HOURS = PERIOD_HOURS["1an"]`, 400 au-delà. Le
+  plafond vaut la plus longue période prédéfinie : il ne retire rien
+  d'atteignable par l'interface, et le message dit **ce qui a été demandé et ce
+  qui est admis**, sans quoi l'appelant ne sait pas de combien resserrer
+- **Borne inclusive** : un an pile passe, des deux côtés. Le serveur rejette sur
+  `>` et le garde-fou client aussi — une divergence d'un côté ou de l'autre
+  produirait soit un blocage sur une plage que l'API accepte, soit le bandeau
+  d'échec opaque qu'on cherche justement à éviter. Un test de chaque côté épingle
+  la borne
+- **Garde-fou client en plus du serveur**, et non à la place : sans lui, une
+  sélection de dates trop large tombait dans le chemin d'échec générique de #36
+  et affichait « certaines données n'ont pas pu être chargées ». C'est faux et
+  inactionnable — le problème est la sélection de l'utilisateur, la seule chose
+  qu'il puisse corriger. Le message dédié le dit
+- **Duplication assumée de la constante** entre `backend/main.py` et
+  `frontend/src/utils/analyseUtils.js`. Il n'y a pas de schéma partagé entre les
+  deux côtés dans ce projet, et l'introduire pour une constante serait
+  disproportionné. Un test frontend épingle la valeur (`MAX_RANGE_HOURS === 8760`)
+  pour qu'une dérive tombe au lieu de passer inaperçue
+- **Ce que le plafond ne fait pas** : la requête reste indexée
+  (`idx_releves_sonde_date`), donc même sans plafond il n'y avait pas de scan de
+  table complet — l'issue était imprécise sur ce point. Le coût réel est la
+  lecture et l'agrégation des lignes de la plage, aujourd'hui modeste (8 090
+  relevés sur trois mois) et croissant avec l'historique
+- **Routes de lecture publiques, actées dans SPEC §6** : c'est la seconde moitié
+  de l'issue. Elles le sont par conception, pas par omission — le front les
+  appelle sans clé et le dashboard est en accès libre. Les protéger suppose
+  l'authentification prévue en v2
 
 ---
 

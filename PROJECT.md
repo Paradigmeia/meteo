@@ -28,6 +28,41 @@ Légende : 🔲 À faire · 🔄 En cours · ✅ Livré · ⚠️ Dette techniqu
 
 ## Changelog
 
+### 2026-08-30 — Issue #37 : plafond sur la plage libre, lecture publique actée
+
+- **Cause** : `/api/releves/{slug}?from=&to=` n'imposait aucune borne à l'écart
+  entre les deux dates. `?from=1970-01-01&to=2100-01-01` faisait lire toutes les
+  lignes de la sonde et les agréger en mémoire, sur une route non authentifiée et
+  sans coût pour l'appelant
+- **`main.py`** : `MAX_RANGE_HOURS = PERIOD_HOURS["1an"]`, 400 au-delà. Le message
+  donne ce qui a été demandé **et** ce qui est admis, sans quoi l'appelant ne sait
+  pas de combien resserrer. Borne inclusive : un an pile passe
+- **`analyseUtils.js` / `useAnalyseReleves.js` / `AnalyseView.jsx`** : garde-fou
+  client aligné sur le même plafond. Sans lui, une sélection de dates trop large
+  partait quand même et l'échec remontait dans le bandeau générique de #36 —
+  « certaines données n'ont pas pu être chargées », inactionnable là où le
+  problème est la sélection de l'utilisateur. Un message dédié le dit, et la
+  requête n'est pas envoyée
+- **Duplication de la constante assumée** entre back et front : pas de schéma
+  partagé dans ce projet, et l'introduire pour une constante serait
+  disproportionné. Un test épingle la valeur des deux côtés
+- **L'issue était imprécise sur un point** : la requête est indexée
+  (`idx_releves_sonde_date`), il n'y avait donc pas de scan de table complet. Le
+  coût réel est la lecture et l'agrégation des lignes de la plage — modeste
+  aujourd'hui (8 090 relevés sur trois mois), croissant avec l'historique
+- **Seconde moitié de l'issue** : les routes de lecture (`/api/sondes`,
+  `/api/releves`, `/api/meteo`) sont actées dans SPEC §6 comme publiques **par
+  conception** et non par omission, avec ce qu'elles exposent et la condition
+  pour changer cela (l'auth prévue en v2)
+- **Tests** : 49 côté backend (4 ajoutés), 29 côté frontend (7 ajoutés).
+  Mutations vérifiées : plafond retiré → 2 échecs, borne rendue exclusive → 1,
+  message appauvri → 1 ; côté client, garde-fou neutralisé → 2, borne désalignée
+  du serveur → 1, constante divergente → 2. Une mutation ne peut pas être tuée et
+  c'est dit : hisser le contrôle hors de la branche des plages libres ne change
+  rien, `8760 > 8760` étant faux — le test correspondant est un garde-fou de
+  régression, pas un test discriminant
+- SPEC.md v1.7 → v1.8 (§6). PLAN.md v1.10 → v1.11 (décision 18)
+
 ### 2026-08-30 — Issue #35 : la clé d'API sort des logs
 
 - **Cause** : le webhook Shelly passe la clé en query string (contrainte firmware,

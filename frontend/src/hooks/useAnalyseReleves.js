@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { isRangeTooLong } from '../utils/analyseUtils'
 
 const API = import.meta.env.VITE_API_URL ?? ''
 
@@ -12,10 +13,15 @@ export function useAnalyseReleves(slugs, period, customRange) {
   const [data, setData] = useState({})
   const [failed, setFailed] = useState(false)
   const key = slugs.join(',')
+  // Le serveur refuse une plage de plus d'un an (400, issue #37). Sans ce
+  // contrôle en amont, l'échec remonterait par `failed` et l'utilisateur lirait
+  // « certaines données n'ont pas pu être chargées » là où le problème est sa
+  // sélection de dates, qu'il est le seul à pouvoir corriger.
+  const tooLong = isRangeTooLong(customRange)
 
   useEffect(() => {
     const currentSlugs = key ? key.split(',') : []
-    if (!currentSlugs.length) return
+    if (!currentSlugs.length || tooLong) return
     let cancelled = false
     let timer
 
@@ -63,7 +69,7 @@ export function useAnalyseReleves(slugs, period, customRange) {
       cancelled = true
       clearTimeout(timer)
     }
-  }, [key, period, customRange?.from, customRange?.to])
+  }, [key, period, customRange?.from, customRange?.to, tooLong])
 
-  return { data, failed }
+  return { data, failed, rangeTooLong: tooLong }
 }

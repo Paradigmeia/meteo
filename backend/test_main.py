@@ -299,6 +299,45 @@ def test_releves_to_before_from_rejected(client):
     assert resp.status_code == 400
 
 
+def test_releves_range_of_exactly_one_year_accepted(client):
+    """La borne est inclusive : un an pile passe, c'est la plus longue période
+    que l'interface sait proposer (issue #37)."""
+    resp = client.get(
+        "/api/releves/salon",
+        # 2025-01-01 → 2026-01-01 : 365 jours pile, soit exactement MAX_RANGE_HOURS
+        params={"from": "2025-01-01T00:00:00.000Z", "to": "2026-01-01T00:00:00.000Z"},
+    )
+    assert resp.status_code == 200
+
+
+def test_releves_range_over_one_year_rejected(client):
+    resp = client.get(
+        "/api/releves/salon",
+        params={"from": "2020-01-01T00:00:00.000Z", "to": "2026-01-01T00:00:00.000Z"},
+    )
+    assert resp.status_code == 400
+    # Le message dit ce qui a été demandé et ce qui est admis : sans les deux,
+    # l'appelant ne sait pas de combien resserrer
+    detail = resp.json()["detail"]
+    assert "2192 jours" in detail and "365 jours" in detail
+
+
+def test_releves_absurd_range_does_not_scan_everything(client):
+    """La plage qui motivait l'issue : bornes extrêmes, coût nul pour l'appelant."""
+    resp = client.get(
+        "/api/releves/salon",
+        params={"from": "1970-01-01T00:00:00.000Z", "to": "2100-01-01T00:00:00.000Z"},
+    )
+    assert resp.status_code == 400
+
+
+def test_releves_period_1an_still_accepted_after_cap(client):
+    """Le plafond ne doit pas atteindre les périodes prédéfinies, qui ne passent
+    pas par le même chemin de code."""
+    resp = client.get("/api/releves/salon", params={"period": "1an"})
+    assert resp.status_code == 200
+
+
 def test_releves_invalid_date_format_rejected(client):
     resp = client.get(
         "/api/releves/salon",
