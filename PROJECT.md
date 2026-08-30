@@ -42,6 +42,8 @@ Légende : 🔲 À faire · 🔄 En cours · ✅ Livré · ⚠️ Dette techniqu
   — c'est le `always` qui le permet
 - Réserve consignée : si la v2 veut la géolocalisation du navigateur,
   `geolocation=()` la bloquerait sans que le message d'erreur pointe vers ici
+- **Déployé le 2026-08-30** (`180943e`) : les 7 en-têtes servis sur `/` et sur
+  `/api/sondes` en production
 - PLAN.md v1.19 → v1.20 (décision 16 complétée). SPEC.md inchangée
 
 ### 2026-08-30 — Issue #60 : limitation de débit sur les lectures, et l'IP qu'on croyait compter
