@@ -96,6 +96,9 @@ Légende : 🔲 À faire · 🔄 En cours · ✅ Livré · ⚠️ Dette techniqu
   `/api/sondes`, rendent des réponses **octet pour octet identiques** avant et
   après. Aucun traceback
 - PLAN.md v1.14 → v1.15 (décision 22). SPEC.md inchangée
+- **Déployé le 2026-08-30** (`276e063`) : les trois écritures des mêmes instants
+  rendent 6 points chacune sur meteo.paradigme.me, aucun traceback depuis le
+  redémarrage, aucun relevé perdu pendant celui-ci
 
 ### 2026-08-30 — Issue #43 : `/api/sondes` jetait le timestamp qu'il venait de calculer
 
