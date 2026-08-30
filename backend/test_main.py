@@ -1,6 +1,7 @@
 import os
 import sqlite3
 import tempfile
+import time
 from datetime import datetime
 
 import pytest
@@ -453,6 +454,235 @@ def test_releves_invalid_date_format_rejected(client):
         params={"from": "pas-une-date", "to": "2026-01-16T00:00:00.000Z"},
     )
     assert resp.status_code == 400
+
+
+# --- Bornes de plage et décalage horaire (issue #59) ---
+#
+# SQLite compare `recu_le` comme du texte. Les lignes sont toutes écrites en
+# `+00:00` ; une borne portant un autre décalage n'est pas ordonnée comme
+# l'instant qu'elle désigne, et la requête lit une fenêtre décalée d'autant.
+# Chaque test place au moins une ligne que la comparaison fautive incluait à
+# tort ET une qu'elle excluait à tort : un seul des deux côtés se corrige par
+# accident en élargissant la fenêtre.
+
+
+def _temperatures(client, slug, **params):
+    resp = client.get(f"/api/releves/{slug}", params=params)
+    assert resp.status_code == 200, resp.text
+    return [r["temperature"] for r in resp.json()]
+
+
+@pytest.mark.parametrize(
+    "cas,borne_basse,borne_haute,instant_hors_fenetre",
+    [
+        # Les deux écritures désignent 10:00 → 12:00 UTC. La comparaison fautive
+        # ignorait le décalage : elle lisait la fenêtre telle qu'elle s'écrit,
+        # donc 12:00 → 14:00 pour l'une et 05:00 → 07:00 pour l'autre.
+        ("positif", "2026-06-01T12:00:00+02:00", "2026-06-01T14:00:00+02:00",
+         "2026-06-01T13:00:00+00:00"),
+        ("negatif", "2026-06-01T05:00:00-05:00", "2026-06-01T07:00:00-05:00",
+         "2026-06-01T06:00:00+00:00"),
+    ],
+)
+def test_releves_plage_avec_decalage_lit_la_meme_fenetre_qu_en_utc(
+    client, cas, borne_basse, borne_haute, instant_hors_fenetre
+):
+    """Une plage écrite avec un décalage doit rendre exactement les mêmes points
+    que la même plage écrite en `Z`.
+
+    Mesuré en production avant le correctif : 2 points contre 6 pour les mêmes
+    deux heures. Les deux décalages exercent la même propriété — aucune des
+    mutations essayées ne les sépare — mais le sens de la conversion n'est
+    asymétrique que si on l'écrit à la main, et c'est peu cher à tenir.
+    """
+    slug = _sonde_de_test(f"test-59-decalage-{cas}")
+    _insert_releve(slug, 11.1, None, "2026-06-01T10:30:00+00:00")  # exclue à tort
+    _insert_releve(slug, 22.2, None, instant_hors_fenetre)  # incluse à tort
+
+    en_utc = _temperatures(
+        client, slug, **{"from": "2026-06-01T10:00:00Z", "to": "2026-06-01T12:00:00Z"}
+    )
+    avec_decalage = _temperatures(
+        client, slug, **{"from": borne_basse, "to": borne_haute}
+    )
+    assert en_utc == [11.1]
+    assert avec_decalage == en_utc
+
+
+@pytest.fixture
+def fuseau_local_decale():
+    """Force l'heure locale du processus à +14:00 le temps d'un test.
+
+    La machine tourne en UTC : sans ce décalage, `astimezone` sur un datetime
+    naïf y donnerait le même résultat qu'une normalisation correcte, et le test
+    qui suit passerait quoi qu'on écrive.
+    """
+    ancien = os.environ.get("TZ")
+    os.environ["TZ"] = "Pacific/Kiritimati"
+    time.tzset()
+    yield
+    if ancien is None:
+        del os.environ["TZ"]
+    else:
+        os.environ["TZ"] = ancien
+    time.tzset()
+
+
+def test_releves_bornes_naives_sont_lues_comme_de_l_utc(client, fuseau_local_decale):
+    """Une borne sans fuseau est documentée « ISO 8601 » et acceptée telle
+    quelle. `_parse_recu_le` l'étiquette UTC ; `astimezone` sur un datetime resté
+    naïf supposerait, lui, l'heure locale du processus.
+
+    Le correctif dépend donc de cet étiquetage, et ce test tient la dépendance :
+    normaliser avant le passage par `_parse_recu_le`, ou cesser d'étiqueter,
+    décalerait la fenêtre de 14 h et ferait tomber ce test seul.
+    """
+    slug = _sonde_de_test("test-59-naif")
+    _insert_releve(slug, 11.1, None, "2026-06-01T10:30:00+00:00")
+    _insert_releve(slug, 22.2, None, "2026-05-31T21:00:00+00:00")  # incluse à tort
+
+    assert _temperatures(
+        client, slug, **{"from": "2026-06-01T10:00:00", "to": "2026-06-01T12:00:00"}
+    ) == [11.1]
+
+
+def test_releves_bornes_restent_au_format_des_lignes_en_base(client):
+    """Le piège du correctif : normaliser en `Z` au lieu de `+00:00` casserait
+    la comparaison dans l'autre sens.
+
+    Les deux lignes tombent sur la seconde exacte des bornes, seul endroit où le
+    suffixe est atteint par la comparaison. `+00:00` s'ordonne avant le `.` des
+    microsecondes, `Z` après : avec un `Z`, la ligne de la borne basse serait
+    exclue et celle de la borne haute — postérieure à `to` — incluse.
+    """
+    slug = _sonde_de_test("test-59-format-borne")
+    _insert_releve(slug, 11.1, None, "2026-06-01T10:00:00.123456+00:00")  # dedans
+    _insert_releve(slug, 22.2, None, "2026-06-01T12:00:00.123456+00:00")  # dehors
+
+    assert _temperatures(
+        client, slug, **{"from": "2026-06-01T10:00:00Z", "to": "2026-06-01T12:00:00Z"}
+    ) == [11.1]
+
+
+def test_releves_ligne_a_la_seconde_pile_est_bien_filtree(client):
+    """Une ligne dont la microseconde est nulle s'écrit sans fraction du tout —
+    `isoformat()` l'omet — et porte donc un `+` là où les autres ont un `.`.
+
+    Il n'y en a aucune dans les 8 138 lignes de production, mais rien ne
+    l'interdit : c'est une propriété des données, pas du format, et le
+    raisonnement sur l'ordre lexicographique doit tenir dans ce cas aussi. La
+    ligne à la seconde pile de la borne basse est incluse, celle de la borne
+    haute exclue — l'ordre est bien chronologique des deux côtés.
+    """
+    slug = _sonde_de_test("test-59-seconde-pile")
+    _insert_releve(slug, 11.1, None, "2026-06-01T10:00:00+00:00")  # borne basse
+    _insert_releve(slug, 33.3, None, "2026-06-01T12:00:00.000001+00:00")  # hors
+
+    assert _temperatures(
+        client, slug, **{"from": "2026-06-01T12:00:00+02:00", "to": "2026-06-01T14:00:00+02:00"}
+    ) == [11.1]
+
+
+@pytest.mark.parametrize(
+    "borne_basse,borne_haute",
+    [
+        # Ramenées en UTC, ces bornes sortent de datetime.min / datetime.max.
+        ("0001-01-01T00:00:00+14:00", "0001-06-01T00:00:00+14:00"),
+        ("9999-12-01T00:00:00-12:00", "9999-12-31T23:59:59-12:00"),
+    ],
+)
+def test_releves_bornes_hors_bornes_representables_rejetees(
+    client, borne_basse, borne_haute
+):
+    """Ces deux plages passent les gardes en amont — `to` est postérieur à
+    `from`, et l'écart est très en dessous du plafond — mais `astimezone` lève
+    une `OverflowError` sur la normalisation. Sans ce garde, l'endpoint répond
+    500 sur une lecture publique et non authentifiée, alors qu'il rendait 200 et
+    une liste vide avant que la normalisation n'existe : c'est la normalisation
+    elle-même qui a introduit le chemin, pas une fragilité préexistante.
+
+    Le message doit être distinct de celui du format invalide : ces dates sont
+    de l'ISO 8601 valide, l'appelant n'a rien mal écrit.
+    """
+    resp = client.get(
+        "/api/releves/salon", params={"from": borne_basse, "to": borne_haute}
+    )
+    assert resp.status_code == 400
+    assert "représentables" in resp.json()["detail"]
+
+
+def test_releves_bornes_extremes_en_utc_restent_acceptees(client):
+    """Le témoin du test précédent : les mêmes années sans décalage ne débordent
+    pas — `astimezone` sur de l'UTC ne calcule rien. Sans lui, rejeter toutes les
+    dates extrêmes passerait pour un correctif.
+    """
+    resp = client.get(
+        "/api/releves/salon",
+        params={"from": "0001-01-01T00:00:00Z", "to": "0001-06-01T00:00:00Z"},
+    )
+    assert resp.status_code == 200
+    assert resp.json() == []
+
+
+def test_les_lignes_sont_ecrites_en_utc_suffixe_00_00(client, fuseau_local_decale):
+    """L'invariant dont dépendent les deux comparaisons de chaînes du projet.
+
+    La normalisation des bornes suppose que toute ligne s'écrit `+00:00`, et le
+    `ORDER BY recu_le DESC` de `/api/sondes` — que ce correctif ne touche pas —
+    en dépend tout autant : c'est lui qui élit le dernier relevé par grandeur.
+    Une écriture future en heure locale, ou en `Z`, casserait les deux sans
+    qu'aucun autre test ne bouge. Les deux chemins d'écriture sont exercés.
+
+    Sous heure locale décalée, sans quoi le test ne vaut que la moitié de ce
+    qu'il annonce : la machine tournant en UTC, une écriture en heure locale
+    *étiquetée* — `datetime.now().astimezone()` — y produit un `+00:00` correct
+    et passait. Seule la variante naïve, sans fuseau du tout, était attrapée.
+    """
+    for appel in (
+        lambda: client.get(
+            "/api/releve/test-59-format-ligne", params={"temp": "21.0", "key": "test-key"}
+        ),
+        lambda: client.post(
+            "/api/releve/test-59-format-ligne",
+            json={"temp": 21.0},
+            headers={"X-API-Key": "test-key"},
+        ),
+    ):
+        _sonde_de_test("test-59-format-ligne")
+        assert appel().status_code == 200
+
+    conn = sqlite3.connect(config.DATABASE_PATH)
+    ecritures = [
+        r[0]
+        for r in conn.execute(
+            """SELECT recu_le FROM releves
+               WHERE sonde_id = (SELECT id FROM sondes WHERE slug = 'test-59-format-ligne')"""
+        ).fetchall()
+    ]
+    conn.close()
+    assert len(ecritures) == 2
+    for valeur in ecritures:
+        assert valeur.endswith("+00:00"), valeur
+        assert datetime.fromisoformat(valeur).utcoffset().total_seconds() == 0
+
+
+def test_releves_le_plafond_valide_la_fenetre_reellement_lue(client):
+    """La conséquence qui motive l'issue : le plafond de #37 raisonne sur des
+    instants (`end - start`), la requête comparait des chaînes. Une plage
+    validée comme faisant 365 jours en lisait une autre, décalée du décalage.
+
+    365 jours pile en `-12:00` : accepté par le plafond, et la fenêtre lue doit
+    être 12:00Z → 12:00Z, pas 00:00Z → 00:00Z.
+    """
+    slug = _sonde_de_test("test-59-plafond")
+    _insert_releve(slug, 11.1, None, "2025-01-01T06:00:00+00:00")  # incluse à tort
+    _insert_releve(slug, 22.2, None, "2026-01-01T06:00:00+00:00")  # exclue à tort
+
+    assert _temperatures(
+        client,
+        slug,
+        **{"from": "2025-01-01T00:00:00-12:00", "to": "2026-01-01T00:00:00-12:00"},
+    ) == [22.2]
 
 
 # --- Résilience en lecture : une ligne non finie déjà en base (issue #36) ---

@@ -1,6 +1,6 @@
 # PLAN.md — maison-temp
 
-**Version** : 1.14
+**Version** : 1.15
 **Date** : 2026-08-30
 **Référence** : SPEC.md v1.9
 
@@ -739,6 +739,75 @@ Procédure, à faire dans cet ordre — le service refuse toute écriture entre 
 - **Le seuil de 30 min est conservé tel quel** : deux relevés séparés de quelques
   minutes sont le cas nominal, le Shelly envoyant ses deux actions l'une après
   l'autre
+
+
+### Décision 22 (2026-08-30)
+
+- **Contexte** : `/api/releves/{slug}?from=&to=` construisait ses bornes par
+  `start.isoformat()` / `end.isoformat()`, qui conservent le décalage horaire de
+  l'écriture reçue, puis SQLite les comparait comme du texte à une colonne
+  stockée en `+00:00`. Une plage écrite `12:00+02:00 → 14:00+02:00` ne lisait pas
+  les instants qu'elle désigne mais la fenêtre telle qu'elle s'écrit, décalée de
+  deux heures (issue #59). Mesuré en production : 2 points contre 6 pour les
+  mêmes deux heures
+- **Pourquoi le décalage ne compte pour rien** : il s'écrit après les chiffres
+  comparés. À position égale, `+` et `-` s'ordonnent tous deux avant le `.` des
+  microsecondes, donc face aux lignes en base la comparaison n'atteint jamais le
+  suffixe — ce n'est pas un ordre approximatif. **C'est une propriété des données,
+  pas du format** : `isoformat()` omet la fraction quand la microseconde est
+  nulle, et une telle ligne porterait un `+` en position 19 elle aussi. Il n'y en
+  a aucune sur les 8 138 lignes de production, mais rien ne l'interdit — l'ordre
+  y reste chronologique (`+` avant `.` place la seconde pile avant les
+  fractionnaires de la même seconde), et un test couvre le cas. La formulation
+  initiale présentait cette propriété comme structurelle, la review l'a reprise
+- **Correctif** : les bornes sont ramenées en UTC **dès le parsing**
+  (`_parse_recu_le(from_).astimezone(timezone.utc)`), et non au moment de
+  construire la requête. Tout ce qui suit — le contrôle `end <= start`, le
+  plafond, la requête SQL — travaille alors sur les mêmes instants, et le
+  traitement d'erreur reste au même endroit que celui du format invalide
+- **Une date ISO valide peut ne pas être normalisable** : `0001-01-01T00:00:00+14:00`
+  sort de `datetime.min` une fois ramenée en UTC, et `astimezone` lève une
+  `OverflowError` que le `except ValueError` du parsing ne rattrape pas. La
+  première version de ce correctif répondait donc 500 sur une lecture publique et
+  non authentifiée, là où le code d'avant rendait 200 et une liste vide — une
+  régression introduite par le correctif lui-même, relevée en review. Garde
+  explicite et 400, avec un message distinct de celui du format : ces dates sont
+  de l'ISO 8601 valide, l'appelant n'a rien mal écrit. Les mêmes années **sans**
+  décalage restent acceptées, `astimezone` sur de l'UTC ne calculant rien — un
+  témoin le tient, sans quoi rejeter toutes les dates extrêmes passerait pour un
+  correctif
+- **Le format `+00:00` est un invariant, pas un détail de mise en forme.**
+  `isoformat()` sur un datetime UTC rend `+00:00` et non `Z` : c'est ce qui garde
+  les bornes comparables aux lignes déjà en base. Un `Z` s'ordonnerait *après* le
+  `.` des microsecondes et exclurait la seconde de la borne basse tout en incluant
+  celle de la borne haute — le piège principal de ce correctif, tenu par un test
+  dédié dont les deux lignes tombent sur la seconde exacte des bornes
+- **Ce que le correctif ne touche pas** : le `ORDER BY recu_le DESC LIMIT 1` de
+  `/api/sondes`, que la décision 21 renvoyait à cette issue, reste lexicographique.
+  Il est correct tant que toute ligne s'écrit en UTC `+00:00`, ce que `_now_iso`
+  garantit pour les deux chemins d'écriture — mais cet invariant n'était gardé par
+  rien. Il l'est désormais par un test qui exerce le webhook GET et le POST et
+  vérifie le format écrit — **sous heure locale décalée**, sans quoi il ne valait
+  que la moitié de ce qu'il annonçait : la machine tournant en UTC, une écriture
+  en heure locale *étiquetée* (`datetime.now().astimezone()`) y produit un
+  `+00:00` correct et passait. Seule la variante naïve était attrapée. Relevé en
+  review, et c'est exactement la correction déjà faite sur le test voisin des
+  bornes naïves — le raisonnement n'avait pas été appliqué à celui-ci. Le passer en SQL sur des instants demanderait de
+  changer le stockage, ce qui n'est pas justifié par un défaut qui n'existe pas
+- **Le plafond de #37 valide maintenant la fenêtre réellement lue.** Il raisonne
+  sur des instants (`end - start`) ; la requête comparait des chaînes. Une plage
+  validée à 365 jours pouvait en lire une autre, jusqu'à 26 h d'écart entre les
+  décalages extrêmes (`-12:00` et `+14:00`)
+- **Les bornes naïves restent lues comme de l'UTC**, et le correctif en dépend :
+  `astimezone` sur un datetime resté naïf supposerait l'heure locale du processus.
+  C'est `_parse_recu_le` qui étiquette en amont. La machine tournant en UTC, un
+  test qui se contenterait de passer une borne sans fuseau passerait quoi qu'on
+  écrive : celui-ci force l'heure locale du processus à +14:00 le temps du test
+- **L'interface n'était pas affectée** : `toIso()` dans `AnalyseView` n'émet que
+  du `Z`. Vérifié sur une copie de la base de production, toutes les requêtes que
+  l'interface émet réellement — six périodes prédéfinies et deux plages libres en
+  `Z`, sur les trois sondes — rendent des réponses identiques avant et après. Seules
+  les écritures avec décalage changent, ce qui est l'objet du correctif
 
 ---
 

@@ -28,6 +28,75 @@ Légende : 🔲 À faire · 🔄 En cours · ✅ Livré · ⚠️ Dette techniqu
 
 ## Changelog
 
+### 2026-08-30 — Issue #59 : la fenêtre validée n'était pas la fenêtre lue
+
+- **Cause** : `/api/releves/{slug}?from=&to=` construisait ses bornes avec
+  `isoformat()`, qui conserve le décalage horaire reçu, et SQLite les comparait
+  comme du texte à une colonne stockée en `+00:00`. Le décalage s'écrivant après
+  les chiffres comparés — et `+`/`-` s'ordonnant tous deux avant le `.` des
+  microsecondes — il ne comptait pour rien : la requête lisait la fenêtre telle
+  qu'elle s'écrit. Mesuré en production, deux écritures des **mêmes instants** :
+  6 points en `Z`, 2 points en `+02:00`
+- **`main.py`** : `start.astimezone(timezone.utc).isoformat()`, idem pour `end`.
+  Le plafond de #37, qui raisonnait déjà sur de vrais instants, valide désormais
+  la fenêtre réellement lue — l'écart pouvait atteindre 26 h entre `-12:00` et
+  `+14:00`, soit 366 jours lus pour 365 validés
+- **Le piège du correctif était le format de sortie** : normaliser en `Z` aurait
+  cassé la comparaison dans l'autre sens, `Z` s'ordonnant après le `.` des
+  microsecondes. Un test dédié pose ses deux lignes sur la seconde exacte des
+  bornes — seul endroit où le suffixe est atteint par la comparaison — et attrape
+  les deux conséquences : borne basse exclue, borne haute incluse à tort
+- **Ce que le correctif ne touche pas, dit explicitement** : le `ORDER BY recu_le
+  DESC` de `/api/sondes`, que la décision 21 renvoyait à cette issue, reste
+  lexicographique. Il est correct tant que toute ligne s'écrit en `+00:00` — un
+  invariant que rien ne gardait, et qu'un test épingle maintenant sur les deux
+  chemins d'écriture (webhook GET et POST)
+- **Un test écrit puis rendu décisif** : la borne sans fuseau ne prouvait rien,
+  la machine tournant en UTC — `astimezone` sur un naïf y donne le même résultat
+  qu'une normalisation correcte. Il force désormais l'heure locale du processus à
+  +14:00. Sans ça, il passait quoi qu'on écrive
+- **Deux tests fusionnés en un test paramétré** : les décalages positif et négatif
+  mouraient sur exactement les mêmes mutations. Les garder séparés laissait croire
+  qu'ils couvraient des choses différentes
+- **Corrigé après review adversariale**, deux défauts réels :
+  - **le correctif introduisait un 500** sur une lecture publique et non
+    authentifiée. `0001-01-01T00:00:00+14:00` est de l'ISO 8601 valide dont la
+    normalisation sort de `datetime.min` ; `astimezone` lève une `OverflowError`
+    que le `except ValueError` du parsing ne rattrape pas, et les gardes en amont
+    laissent passer (`to` postérieur à `from`, écart très sous le plafond). Le
+    code d'avant rendait 200 et une liste vide. C'est la classe de défaut que ce
+    projet a déjà traitée deux fois (#36, #44) : le correctif régressait sur son
+    propre standard
+  - **le test d'invariant ne tenait que la moitié de ce qu'il annonçait** : la
+    machine tournant en UTC, une écriture en heure locale *étiquetée* y produit
+    un `+00:00` correct et passait les 71 tests. Or c'est ce test qui porte tout
+    l'argument pour ne pas toucher au `ORDER BY` de `/api/sondes`. Même correction
+    que celle déjà faite sur le test voisin — la fixture existait, elle n'avait
+    pas été appliquée ici
+  - au passage, l'affirmation « la comparaison n'atteint jamais le suffixe » était
+    présentée comme une propriété du format : c'en est une des données (une ligne
+    à microseconde nulle s'écrit sans fraction). Nuancé, et le cas est couvert
+- **Normalisation déplacée au parsing** plutôt qu'à la construction de la requête :
+  le contrôle `end <= start`, le plafond et la requête SQL travaillent alors sur
+  les mêmes instants, et le traitement d'erreur reste groupé avec celui du format
+- **Tests** : 75 backend (10 ajoutés), 54 frontend inchangés. **Onze mutations,
+  toutes attrapées**, dont les deux que la review a mises en défaut : normalisation
+  retirée (6 échecs) · borne basse seule (5) · borne haute seule (5) ·
+  `replace(tzinfo=utc)` au lieu d'`astimezone` (6) · conversion de signe inversé (6)
+  · bornes SQL en `Z` (2) · garde `OverflowError` retiré (2) · `_parse_recu_le`
+  cesse d'étiqueter les naïfs (4) · `_now_iso` naïf (1) · `_now_iso` en heure
+  locale étiquetée (1) · `_now_iso` en `Z` (1). Elles ne se répartissent que sur
+  **six tests distincts** : cinq d'entre elles tombent sur les quatre mêmes — le
+  tableau compte des mutations, pas des propriétés indépendantes
+- **Vérifié sur une copie de la base de production** (8 138 relevés) : les trois
+  écritures des mêmes instants rendent 6 points chacune, contre 6/2/2 avant ; les
+  deux plages extrêmes rendent 400 avec leur message, contre 500 dans la première
+  version. Et en non-régression, les 24 requêtes que l'interface émet réellement —
+  six périodes prédéfinies et deux plages libres en `Z`, sur les trois sondes — plus
+  `/api/sondes`, rendent des réponses **octet pour octet identiques** avant et
+  après. Aucun traceback
+- PLAN.md v1.14 → v1.15 (décision 22). SPEC.md inchangée
+
 ### 2026-08-30 — Issue #43 : `/api/sondes` jetait le timestamp qu'il venait de calculer
 
 - **Cause** : `get_sondes` calculait le plus récent des deux horodatages puis
