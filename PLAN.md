@@ -1,6 +1,6 @@
 # PLAN.md — maison-temp
 
-**Version** : 1.9
+**Version** : 1.10
 **Date** : 2026-08-29
 **Référence** : SPEC.md v1.7
 
@@ -166,7 +166,7 @@ Ce que la maquette montre et que le code doit reproduire :
 - **Contexte** : Intégration réelle du Shelly H&T Gen3 (firmware HTG3/1.7.5)
 - **Choix** : Endpoint GET `POST /api/releve/{slug}` complété par `GET /api/releve/{slug}?temp=X&hum=Y&key=TOKEN`
 - **Pourquoi** : Le firmware Shelly ne supporte que les URL actions GET, et envoie temp et humidité sur deux events distincts. La variable humidité est `${ev.rh}` (relative humidity) — `${ev.h}` est null dans tous les events. Solution : deux actions Shelly séparées ("Changement de température" / "Changement d'humidité"), `temp` et `hum` optionnels en query param.
-- **Trade-off** : La clé API est dans l'URL (visible dans les logs Nginx). Acceptable pour usage domestique — le dashboard est déjà en lecture libre.
+- **Trade-off** : La clé API est dans l'URL (visible dans les logs Nginx). Acceptable pour usage domestique — le dashboard est déjà en lecture libre. *Révisé le 2026-08-30 : la fuite s'étendait aussi au journal systemd via uvicorn, et l'ampleur mesurée a fait revoir ce « acceptable » — cf. décision 17 et issue #35.*
 
 ### Décision 7 (2026-06-01)
 
@@ -428,6 +428,102 @@ Ce que la maquette montre et que le code doit reproduire :
   `cd /home/debian/meteo && git pull origin main` (le checkout de production n'a
   pas encore le fichier), puis
   `sudo cp /home/debian/meteo/nginx/maison-temp.conf /etc/nginx/sites-available/maison-temp && sudo nginx -t && sudo systemctl reload nginx`
+
+### Décision 17 (2026-08-30)
+
+- **Contexte** : la décision 6 assumait que la clé d'API soit visible dans les
+  logs nginx. La mesure a montré que ce « acceptable » reposait sur une
+  sous-estimation. Trois mesures :
+  - **8 243 lignes** portant la clé dans `access.log`. Et ce fichier n'est
+    **jamais tourné** : `/etc/logrotate.d/nginx` déclare bien `daily` et
+    `rotate 14`, mais aucune unité `logrotate.timer` n'existe sur cette machine
+    et `/var/log/nginx/` ne contient aucune archive. Le fichier est continu du
+    8 mars au 30 août 2026 — 88 Mo, 557 853 lignes. L'exposition est de six
+    mois, pas de deux semaines
+  - un **second canal non identifié** : uvicorn journalise lui aussi la ligne de
+    requête complète, ~107 occurrences en 24 h dans un journal systemd de 3 Go
+    sans rétention configurée
+  - un **troisième canal**, relevé en review : `error_log`. Il écrit l'URI
+    complète dans son contexte `request:` et `upstream:` sur tout événement de
+    niveau `[error]` — un 502 suffit, et le redémarrage du service en ouvre
+    précisément la fenêtre. Une occurrence déjà présente en production
+- **Choix** : masquer plutôt que déplacer le secret. Le firmware HTG3/1.7.5 ne
+  sait faire que des URL actions GET sans en-tête (décision 6), donc la clé reste
+  dans l'URL ; ce qui change, c'est ce qu'on écrit sur disque
+  - **nginx** : `location /api/releve/` dédiée, journalisée avec un `log_format`
+    qui écrit `$uri` (chemin seul) au lieu de `$request` (URI complète). Le
+    préfixe est plus long que `/api/`, donc prioritaire, et `/api/releves/`
+    (lecture, au pluriel) ne correspond pas — elle garde sa journalisation
+    complète, n'ayant pas de secret à cacher
+  - **uvicorn** : `--no-access-log`. Ces lignes faisaient double emploi avec
+    celles de nginx pour tout ce qui vient de l'extérieur. Ce n'est pas
+    strictement « aucune information perdue » : `install.sh` et `update.sh`
+    appellent `http://127.0.0.1:8042/api/sondes` en contournant nginx, et tout
+    processus local pourrait en faire autant — ces requêtes-là ne laissent plus
+    aucune trace. Elles ne portent pas de clé, et le compromis reste favorable,
+    mais il n'est pas gratuit
+  - **`error_log` du webhook relevé à `crit`** : les lignes `[error]` qui
+    portaient l'URI disparaissent pour cette location. On garde le fait — un 502
+    apparaît dans `access.log`, chemin masqué — on perd le détail de la cause.
+    La lecture au pluriel conserve le sien, n'ayant pas de secret à cacher
+  - **Bloc port 80** : même format de journalisation. Une action Shelly
+    configurée en `http://` se ferait rediriger, et la ligne de redirection
+    porterait la clé. Mesuré : 2 requêtes sur 8 095 passent par là — le cas est
+    rare mais réel
+  - **`location ^~ /api/releve/`** et non `location /api/releve/` : sans le
+    `^~`, une location regex ajoutée un jour (`location ~ ^/api/`) l'emporterait
+    sur le préfixe et le masquage disparaîtrait sans un mot de `nginx -t`
+- **Écarté — `access_log off` sur la location** : on perdrait la trace que le
+  webhook a été appelé, utile pour diagnostiquer une sonde muette. Le chemin, le
+  code de retour et l'horodatage suffisent, la valeur mesurée étant de toute
+  façon en base
+- **Ce que ça ne règle pas** : le site est derrière Cloudflare, qui journalise
+  l'URL complète de son côté. Hors de portée d'un correctif nginx, et à savoir
+  avant de considérer le sujet clos
+- **Vérifié en bac à sable** avant déploiement, sur la configuration exacte :
+  webhook journalisé en `GET /api/releve/salon` sans paramètres (401 sur clé
+  bidon, donc le proxy fonctionne), lecture au pluriel toujours journalisée avec
+  sa query string, clé de test absente du log, et **les six en-têtes de sécurité
+  toujours présents sur la nouvelle location** — c'est le piège `add_header` de
+  la décision 16, qu'un seul en-tête posé dans ce bloc aurait déclenché
+- **Les logs déjà écrits contiennent la clé.** Le masquage ne vaut que pour
+  l'avenir : tant que la clé n'est pas changée, elle reste lisible dans
+  `/var/log/nginx/access.log*` et dans le journal systemd
+
+#### Rotation de la clé d'API
+
+Procédure, à faire dans cet ordre — le service refuse toute écriture entre les
+étapes 2 et 4, les sondes n'ayant pas encore la nouvelle clé :
+
+0. Vérifier qu'un `/home/debian/meteo/.env` orphelin traîne encore (mode 644,
+   clé différente de celle réellement utilisée) et le supprimer — il n'est lu par
+   personne et ne sert qu'à égarer
+1. Générer une clé : `openssl rand -hex 32`. **L'hexadécimal est délibéré** : la
+   clé transite en query string, et un `base64` produirait des `+`, `/`, `=` —
+   un `+` non encodé se décode en espace côté serveur, donc une authentification
+   qui casse par intermittence, très pénible à diagnostiquer
+2. La reporter dans `API_KEY=` de **`/home/debian/meteo/backend/.env`** — c'est
+   celui que désignent `EnvironmentFile=` et le `load_dotenv()` lancé depuis
+   `WorkingDirectory=/home/debian/meteo/backend`. Se tromper de fichier fait
+   échouer toutes les écritures en 401 après l'étape 4, sans message explicite
+3. `sudo systemctl restart maison-temp`
+4. Reconfigurer **les deux URL actions de chaque boîtier Shelly** (« Changement
+   de température » et « Changement d'humidité », cf. décision 6) avec la
+   nouvelle valeur du paramètre `key`
+5. Vérifier qu'un relevé arrive : `sqlite3` sur la base, ou attendre que le
+   dashboard montre une mesure fraîche
+6. Purger les traces de l'ancienne clé :
+   `sudo truncate -s 0 /var/log/nginx/access.log` **et
+   `sudo truncate -s 0 /var/log/nginx/error.log`** (ce second fichier en contient
+   aussi), puis `sudo journalctl --rotate && sudo journalctl --vacuum-time=1s`.
+   Il n'y a pas d'archives `access.log.*` à supprimer, logrotate ne tournant pas
+   sur cette machine. Le `--vacuum-time` purge **tout** le journal systemd, pas
+   seulement ce service : 3 Go d'historique de diagnostic pour toutes les
+   applications de la machine. À mettre en balance avec le fait qu'après
+   l'étape 4, l'ancienne clé ne vaut plus rien
+7. Si l'étape 5 ne voit arriver aucun relevé, chercher les 401 dans
+   `/var/log/nginx/access.log` — le canal `journalctl -u maison-temp`, réflexe
+   habituel, ne les montre plus depuis `--no-access-log`
 
 ---
 
