@@ -1,6 +1,6 @@
 # PLAN.md — maison-temp
 
-**Version** : 1.18
+**Version** : 1.19
 **Date** : 2026-08-30
 **Référence** : SPEC.md v1.9
 
@@ -909,10 +909,17 @@ Procédure, à faire dans cet ordre — le service refuse toute écriture entre 
 - **Observé au déploiement, et ça valide le raisonnement ci-dessus** : un test de
   la limitation lancé **en direct sur l'IP publique** (donc hors Cloudflare) a
   produit 37 lignes de 429 portant une vraie IP — non couverte par la whitelist
-  CDN — et **CrowdSec a banni cette IP en quelques secondes**. Le bannissement
-  porte sur *tous* les ports : 443, 80 **et 22**. C'est exactement le mécanisme
-  décrit plus haut, vu en vrai, et la sanction est bien celle qu'on redoutait —
-  la perte du SSH.
+  CDN — et **CrowdSec a banni cette IP en quelques secondes**. C'est le mécanisme
+  décrit plus haut, vu en vrai.
+  - **Ce qui a été réellement observé** : les ports 443 et 80 sont passés en
+    timeout pendant le bannissement, et sont redevenus joignables après
+    `cscli decisions delete`. C'est donc bien un blocage pare-feu au niveau IP,
+    et non un refus applicatif de nginx
+  - **Ce qui a d'abord été affirmé à tort** : « le bannissement porte aussi sur
+    le 22 ». Le port 22 donne un refus immédiat parce que **rien n'y écoute** —
+    sshd est sur le 2222 — et le test employé ne distinguait pas « filtré » de
+    « fermé ». La perte du SSH reste la conséquence attendue, le bouncer
+    bloquant par IP source et non par port, mais elle n'a pas été constatée
   - **Le chemin Cloudflare n'est pas concerné** : vérifié après déploiement, les
     journaux ne portent que des IP de bordure, donc les 429 servis aux vrais
     visiteurs restent whitelistés et le domicile ne peut pas être banni. C'est

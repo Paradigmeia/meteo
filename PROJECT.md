@@ -116,10 +116,15 @@ Légende : 🔲 À faire · 🔄 En cours · ✅ Livré · ⚠️ Dette techniqu
   whitelist CDN tient et le domicile ne peut pas être banni
 - **Un effet observé au passage, qui valide la décision sur les journaux** : le
   test lancé **en direct sur l'IP publique** (hors Cloudflare) a fait bannir
-  cette IP par CrowdSec en quelques secondes, sur **tous les ports, SSH compris**.
-  Le chemin Cloudflare est protégé, le chemin direct ne l'a jamais été — et pour
-  lui le bannissement est efficace. À retenir : ne pas tester la limitation en
-  direct sur l'IP publique depuis une machine dont on a besoin
+  cette IP par CrowdSec en quelques secondes — blocage pare-feu au niveau IP,
+  constaté sur les ports 443 et 80, tous deux redevenus joignables après
+  `cscli decisions delete`. Le chemin Cloudflare est protégé, le chemin direct ne
+  l'a jamais été — et pour lui le bannissement est efficace. À retenir : ne pas
+  tester la limitation en direct sur l'IP publique depuis une machine dont on a
+  besoin. *(Rectification : il a d'abord été écrit que le bannissement couvrait
+  aussi le 22. Rien n'écoute sur ce port — sshd est sur 2222 — et le test ne
+  distinguait pas « filtré » de « fermé ». La perte du SSH reste la conséquence
+  attendue d'un blocage par IP source, mais elle n'a pas été observée.)*
 - PLAN.md v1.15 → v1.18 (décision 23). SPEC.md inchangée
 
 ### 2026-08-30 — Issue #59 : la fenêtre validée n'était pas la fenêtre lue
