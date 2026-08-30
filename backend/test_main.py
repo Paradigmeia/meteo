@@ -286,6 +286,92 @@ def test_releves_from_to_filters_range(client):
     assert all(r["temperature"] != 99.9 for r in data)
 
 
+def test_get_releve_non_ascii_key_rejected_not_crashed(client):
+    """Une clé accentuée levait une TypeError dans compare_digest : 500 au lieu
+    de 401, sur un chemin d'authentification et sans être authentifié (#44)."""
+    resp = client.get("/api/releve/salon", params={"temp": "21.0", "key": "clé-é"})
+    assert resp.status_code == 401
+    assert resp.json()["detail"] == "Clé API invalide"
+
+
+def test_post_releve_non_ascii_key_rejected_not_crashed(client):
+    """Le second point de contrôle, par en-tête, avait le même défaut.
+
+    Un en-tête HTTP ne transporte pas d'UTF-8. Le client de test ne relaie pas
+    les octets tels quels — il les relit en iso-8859-1 puis les ré-encode, si
+    bien que la fonction reçoit 'clÃ©-Ã©' et non 'clé-é'. Peu importe : c'est
+    non-ASCII dans les deux cas, et c'est ce qui faisait lever compare_digest.
+    Sur la pile réelle (octets 0xE9 bruts émis par curl), la valeur décodée en
+    latin-1 par Starlette est tout aussi non-ASCII, et donne 401.
+    """
+    resp = client.post(
+        "/api/releve/salon",
+        headers={"X-API-Key": "clé-é".encode("latin-1")},
+        json={"temp": 21.0, "hum": 50.0},
+    )
+    assert resp.status_code == 401
+
+
+def test_key_check_gives_the_same_status_whatever_the_wrong_key(client):
+    """Un statut qui varie selon la forme de la clé est un canal d'information.
+    Toutes les clés fausses doivent se ressembler, quel qu'en soit l'alphabet."""
+    fausses = [
+        "mauvaise-cle",          # ASCII, simplement fausse
+        "clé-é",                 # non-ASCII
+        "clé" * 500,             # non-ASCII et très longue
+        "日本語",                  # hors alphabet latin
+        "\x00binaire",           # octet nul
+        "",                      # vide
+        # Famille préfixe / troncature / longueur, celle-là même que
+        # compare_digest est censé traiter correctement : sans ces trois-là, une
+        # comparaison tronquée aux 4 premiers octets passait tous les tests
+        "test",                  # préfixe strict de la bonne clé
+        "test-ke",               # préfixe plus long
+        "test-keyX",             # bonne clé plus un caractère
+    ]
+    statuts = {
+        client.get("/api/releve/salon", params={"temp": "21.0", "key": k}).status_code
+        for k in fausses
+    }
+    assert statuts == {401}
+
+    # Le même jeu sur le contrôle par en-tête : avant, toute l'authentification
+    # de cet endpoint ne tenait qu'à une seule assertion
+    statuts_entete = {
+        client.post(
+            "/api/releve/salon",
+            headers={"X-API-Key": k.encode("utf-8", "replace")},
+            json={"temp": 21.0},
+        ).status_code
+        for k in fausses if k  # une valeur vide donne 403 (en-tête absent), cf. APIKeyHeader
+    }
+    assert statuts_entete == {401}
+
+
+def test_key_check_rejects_invalid_utf8_in_the_url(client):
+    """Une séquence d'octets invalide est remplacée par U+FFFD au décodage : elle
+    arrive donc comme une chaîne, non-ASCII, et doit être refusée proprement."""
+    resp = client.get("/api/releve/salon?temp=21.0&key=%ED%A0%80")
+    assert resp.status_code == 401
+
+
+def test_key_check_refuses_everything_when_no_key_is_configured(client, monkeypatch):
+    """Sans ce contrôle, une installation dont l'API_KEY n'a pas été renseignée
+    accepterait une clé vide — compare_digest('', '') est vrai."""
+    import main as main_module
+    monkeypatch.setattr(main_module, "API_KEY", "")
+    for k in ["", "test-key", "n'importe quoi"]:
+        resp = client.get("/api/releve/salon", params={"temp": "21.0", "key": k})
+        assert resp.status_code == 401, k
+
+
+def test_key_check_still_accepts_the_right_key(client):
+    """Point d'ancrage explicite du cas passant. (Refuser toute clé fait déjà
+    tomber treize autres tests — ce n'est pas ce test qui l'attrape.)"""
+    resp = client.get("/api/releve/salon", params={"temp": "21.0", "key": "test-key"})
+    assert resp.status_code == 200
+
+
 def test_releves_from_without_to_rejected(client):
     resp = client.get("/api/releves/salon", params={"from": "2026-01-15T00:00:00.000Z"})
     assert resp.status_code == 400

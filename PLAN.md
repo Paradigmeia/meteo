@@ -1,7 +1,7 @@
 # PLAN.md — maison-temp
 
-**Version** : 1.11
-**Date** : 2026-08-29
+**Version** : 1.12
+**Date** : 2026-08-30
 **Référence** : SPEC.md v1.8
 
 ---
@@ -580,6 +580,39 @@ Procédure, à faire dans cet ordre — le service refuse toute écriture entre 
   de l'issue. Elles le sont par conception, pas par omission — le front les
   appelle sans clé et le dashboard est en accès libre. Les protéger suppose
   l'authentification prévue en v2
+
+### Décision 19 (2026-08-30)
+
+- **Contexte** : `secrets.compare_digest` refuse les chaînes non-ASCII et lève
+  une `TypeError`. Les deux points de contrôle de la clé lui passaient la valeur
+  reçue telle quelle : une clé accentuée donnait un **500 au lieu d'un 401**, sur
+  un chemin d'authentification et sans être authentifié (issue #44)
+- **Choix** : comparer les encodages UTF-8 plutôt que les chaînes. La propriété
+  de temps constant est conservée — c'est même la forme naturelle de
+  `compare_digest`, qui travaille sur des octets — et une clé non-ASCII est
+  traitée pour ce qu'elle est : une clé invalide
+- **Les deux contrôles sont factorisés** dans `_key_is_valid`. Ils étaient
+  dupliqués à l'identique, et le défaut existait donc en deux exemplaires : le
+  webhook GET (clé en query string) et `require_api_key` (clé en en-tête)
+- **Le chemin par en-tête est atteignable malgré les apparences** : un en-tête
+  HTTP ne transporte pas d'UTF-8, et un client refuse même de l'émettre — mais il
+  transporte des octets, que Starlette décode en latin-1. La valeur qui arrive
+  contient alors bien du non-ASCII. Le test l'exerce avec des octets bruts
+- **Pas de garde contre un encodage impossible, pour les deux appelants
+  actuels** : une séquence d'octets invalide dans une URL est remplacée par
+  U+FFFD au décodage, et un en-tête est décodé en latin-1 — ni l'un ni l'autre ne
+  produit de demi-codet isolé. Vérifié sur `%ED%A0%80` et `%FF%FE`, qui donnent
+  401. Un `try/except UnicodeEncodeError` avait été écrit puis retiré : il
+  n'était atteignable par aucun de ces deux chemins. **Ce n'est pas une propriété
+  de la fonction** : un corps JSON peut, lui, porter un demi-codet isolé — la
+  review l'a montré, c'est l'issue #62, et le correctif y est ailleurs
+- **Ordre des arguments load-bearing** : `compare_digest` boucle sur la longueur
+  du **second**. L'entrée de l'appelant est donc passée en premier et le secret
+  en second, pour que le nombre d'itérations ne dépende que du secret. Consigné
+  dans la docstring, aucun test ne pouvant l'attraper
+- **Le contrôle sur `API_KEY` vide est conservé et désormais testé** : sans lui,
+  une installation dont la clé n'a pas été renseignée accepterait une clé vide,
+  `compare_digest("", "")` étant vrai
 
 ---
 
