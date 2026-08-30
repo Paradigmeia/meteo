@@ -43,7 +43,7 @@ function EmptyState({ message, height }) {
   )
 }
 
-function LineChart({ lines, bands, splitAxes, showTemp, showHum, width, height, onHover }) {
+function LineChart({ lines, bands, splitAxes, showTemp, showHum, width, height, onHover, emptyMessage }) {
   const [hoverX, setHoverX] = useState(null)
   const touchActiveRef = useRef(false)
 
@@ -55,9 +55,12 @@ function LineChart({ lines, bands, splitAxes, showTemp, showHum, width, height, 
     return (
       <EmptyState
         height={height}
-        message={showTemp || showHum
+        // emptyMessage prime : quand la plage saisie dépasse le plafond, aucune
+        // donnée n'est chargée et conseiller de cocher une case serait un
+        // contresens — les cases peuvent déjà l'être (issue #37)
+        message={emptyMessage ?? (showTemp || showHum
           ? 'Cochez au moins une donnée pour afficher le graphique'
-          : 'Cochez au moins un type de mesure pour afficher le graphique'}
+          : 'Cochez au moins un type de mesure pour afficher le graphique')}
       />
     )
   }
@@ -361,7 +364,7 @@ function ScatterChart({ data, width, height }) {
 export default function AnalyseChart({
   mode, lines = [], bands = [], distributionData = [], scatterData = [],
   splitAxes = false, showTemp = true, showHum = true,
-  width = FALLBACK_CHART_WIDTH, height = FALLBACK_CHART_HEIGHT, onHover,
+  width = FALLBACK_CHART_WIDTH, height = FALLBACK_CHART_HEIGHT, onHover, emptyMessage,
 }) {
   if (mode === 'distribution') return <DistributionChart data={distributionData} width={width} height={height} />
   if (mode === 'scatter') return <ScatterChart data={scatterData} width={width} height={height} />
@@ -369,6 +372,7 @@ export default function AnalyseChart({
     <LineChart
       lines={lines} bands={bands} splitAxes={splitAxes}
       showTemp={showTemp} showHum={showHum} width={width} height={height} onHover={onHover}
+      emptyMessage={emptyMessage}
     />
   )
 }

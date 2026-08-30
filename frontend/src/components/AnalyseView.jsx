@@ -5,7 +5,7 @@ import {
   PERIOD_OPTIONS, sondeColor, METEO_COLOR,
   AVG_1H_DASH, AVG_6H_DASH,
   movingAverage, dailyMinMaxBand,
-  loadAnalysePrefs, saveAnalysePrefs, rangeBoundsMs,
+  loadAnalysePrefs, saveAnalysePrefs, rangeBoundsMs, MAX_RANGE_HOURS,
 } from '../utils/analyseUtils'
 import Icon from './Icon'
 
@@ -64,7 +64,7 @@ export default function AnalyseView({ sondes, meteo, onBack }) {
   const customRange = useCustomRange && customFrom && customTo
     ? { from: toIso(customFrom), to: toIso(customTo) }
     : null
-  const { data: relevesBySlug, failed: relevesFailed } = useAnalyseReleves(slugs, quickCode, customRange)
+  const { data: relevesBySlug, failed: relevesFailed, rangeTooLong } = useAnalyseReleves(slugs, quickCode, customRange)
   const { start: rangeStart, end: rangeEnd } = rangeBoundsMs(quickCode, customRange)
 
   function selectQuick(code) {
@@ -349,6 +349,14 @@ export default function AnalyseView({ sondes, meteo, onBack }) {
             </div>
           )}
 
+          {rangeTooLong && (
+            <div className="analyse-error" role="status">
+              <Icon name="alert-triangle" />
+              Plage trop large : {MAX_RANGE_HOURS / 24} jours au maximum.
+              Resserrez les dates pour afficher le graphique.
+            </div>
+          )}
+
           {relevesFailed && (
             <div className="analyse-error" role="status">
               <Icon name="alert-triangle" />
@@ -359,6 +367,7 @@ export default function AnalyseView({ sondes, meteo, onBack }) {
 
           <div className="chart-card" ref={chartCardRef}>
             <AnalyseChart
+              emptyMessage={rangeTooLong ? 'Aucune donnée : resserrez les dates ci-dessus' : undefined}
               mode={mode}
               lines={visibleLines}
               bands={visibleBands}

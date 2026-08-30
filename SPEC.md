@@ -1,7 +1,7 @@
 # SPEC.md — maison-temp
 
-**Version** : 1.7
-**Date** : 2026-08-29
+**Version** : 1.8
+**Date** : 2026-08-30
 **Objectif principal** : Suivre en temps réel et en historique les températures et taux d'humidité de la maison (intérieur + extérieur) via un dashboard web responsive accessible en ligne.
 
 ---
@@ -262,6 +262,18 @@ Fichier `maison-temp-mockup.html` — validée le 2026-05-23. Constitue la réf�
 ## 6. Sécurité / Auth / Compliance
 
 - Endpoint `/api/releve/{slug}` protégé par `X-API-Key` (token généré à l'install, stocké dans `.env`)
+- **Les routes de lecture — `/api/sondes`, `/api/releves/{slug}`, `/api/meteo` —
+  sont publiques par conception**, et non par omission. Le dashboard est en accès
+  libre et le front les appelle sans clé ; les protéger supposerait d'abord
+  l'authentification listée en v2. Acté explicitement pour que le prochain
+  lecteur n'ait pas à deviner s'il s'agit d'un choix ou d'un oubli (issue #37)
+- Ce que ces routes exposent est donc lisible par quiconque connaît l'URL : des
+  températures et taux d'humidité domestiques, sans identité ni localisation plus
+  précise que la commune déjà affichée
+- **Plafond de la plage libre** : `/api/releves/{slug}?from=&to=` refuse au-delà de
+  365 jours (400). Une lecture non authentifiée ne doit pas pouvoir faire lire un
+  historique arbitrairement long sans coût pour l'appelant. Le plafond vaut la
+  plus longue période que l'interface propose, il ne retire donc rien d'atteignable
 - Dashboard en lecture seule, pas d'authentification nécessaire en v1 (réseau familial, données non sensibles)
 - HTTPS via certificat Let's Encrypt (Nginx)
 - Pas de données personnelles collectées

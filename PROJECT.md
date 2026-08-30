@@ -28,6 +28,71 @@ Légende : 🔲 À faire · 🔄 En cours · ✅ Livré · ⚠️ Dette techniqu
 
 ## Changelog
 
+### 2026-08-30 — Issue #37 : plafond sur la plage libre, lecture publique actée
+
+- **Cause** : `/api/releves/{slug}?from=&to=` n'imposait aucune borne à l'écart
+  entre les deux dates. `?from=1970-01-01&to=2100-01-01` faisait lire toutes les
+  lignes de la sonde et les agréger en mémoire, sur une route non authentifiée et
+  sans coût pour l'appelant
+- **`main.py`** : `MAX_RANGE_HOURS = PERIOD_HOURS["1an"]`, 400 au-delà. Le message
+  donne ce qui a été demandé **et** ce qui est admis, sans quoi l'appelant ne sait
+  pas de combien resserrer. Borne inclusive : un an pile passe
+- **`analyseUtils.js` / `useAnalyseReleves.js` / `AnalyseView.jsx`** : garde-fou
+  client aligné sur le même plafond. Sans lui, une sélection de dates trop large
+  partait quand même et l'échec remontait dans le bandeau générique de #36 —
+  « certaines données n'ont pas pu être chargées », inactionnable là où le
+  problème est la sélection de l'utilisateur. Un message dédié le dit, et la
+  requête n'est pas envoyée
+- **Duplication de la constante assumée** entre back et front : pas de schéma
+  partagé dans ce projet, et l'introduire pour une constante serait
+  disproportionné. Un test épingle la valeur des deux côtés
+- **L'issue était imprécise sur un point** : la requête est indexée
+  (`idx_releves_sonde_date`), il n'y avait donc pas de scan de table complet. Le
+  coût réel est la lecture et l'agrégation des lignes de la plage — modeste
+  aujourd'hui (8 090 relevés sur trois mois), croissant avec l'historique
+- **Seconde moitié de l'issue** : les routes de lecture (`/api/sondes`,
+  `/api/releves`, `/api/meteo`) sont actées dans SPEC §6 comme publiques **par
+  conception** et non par omission, avec ce qu'elles exposent et la condition
+  pour changer cela (l'auth prévue en v2)
+- **Corrections après review adversariale** (PR #58), quatre défauts réels :
+  - **le graphique restait dessiné avec les relevés de la plage précédente**
+    quand le bandeau s'affichait, sur un axe ne correspondant à aucune des dates
+    saisies. Le résultat du hook est désormais dérivé (constante figée) plutôt
+    que laissé tel quel — le vider dans l'effet aurait provoqué un rendu en
+    cascade, que le linter refuse
+  - **le message serveur se contredisait** entre 365 j et 365 j + 12 h :
+    « 365 jours demandés, maximum 365 jours ». `math.ceil` au lieu d'un arrondi
+  - **le garde-fou client n'était couvert par aucun test** : le retirer du hook
+    ou masquer le bandeau ne faisait échouer aucune des 29 vérifications. Mon
+    tableau de mutations annonçait « garde-fou client neutralisé → 2 échecs » ;
+    il mesurait en réalité la neutralisation de `isRangeTooLong`, pas du câblage
+  - **la borne serveur n'était épinglée que par en dessous** : la relâcher d'un
+    jour laissait 49/49 au vert
+  - au passage, la zone du graphique conseillait « Cochez au moins une donnée »
+    alors que la sonde est cochée — contresens corrigé par un message contextuel
+- **jsdom et `@testing-library/react` introduits** : la décision 14 s'en était
+  passée parce qu'elle testait de la géométrie pure. Ici le défaut était dans le
+  câblage, qu'aucun test de fonction pure ne pouvait attraper
+- **Tests** : 51 côté backend (6 ajoutés), 38 côté frontend (16 ajoutés).
+  Mutations, toutes tuées : plafond retiré (2) · borne rendue exclusive (1) ·
+  plafond relâché d'un jour (2) · arrondi au lieu de `ceil` (1) · garde-fou
+  retiré du hook (2) · dérivation retirée (2) · données non vidées (1) · panne
+  annoncée au lieu d'une saisie (1) · bandeau masqué (2) · message vidé de son
+  mode d'emploi (1) · limite chiffrée retirée (1) · message contextuel du
+  graphique retiré (1) · constante client divergente (2). **Deux mutants
+  survivent et sont équivalents** : hisser le contrôle hors de la branche des
+  plages libres (`8760 > 8760` est faux) et retirer `tooLong` des dépendances de
+  l'effet (il dérive de dépendances déjà présentes)
+- **Vérifié en navigateur** : plage de six ans saisie dans l'interface → 2 courbes
+  avant, 0 après, bandeau affiché, **aucune requête envoyée** pendant les
+  3 secondes suivantes (pas de boucle de rafraîchissement)
+- **Non traité, signalé en review** : le filtre SQL compare des chaînes ISO avec
+  leur décalage horaire, alors que le plafond raisonne sur des instants — une
+  plage exprimée en `+02:00` ne lit pas la même fenêtre que la même en `Z`.
+  Défaut préexistant, sans effet sur l'interface (qui n'émet que du `Z`), gardé
+  hors de cette PR pour ne pas en élargir le périmètre
+- SPEC.md v1.7 → v1.8 (§6). PLAN.md v1.10 → v1.11 (décision 18)
+
 ### 2026-08-30 — Issue #35 : la clé d'API sort des logs
 
 - **Cause** : le webhook Shelly passe la clé en query string (contrainte firmware,

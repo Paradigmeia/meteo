@@ -238,6 +238,15 @@ async def get_sondes():
 
 PERIOD_HOURS = {"12h": 12, "24h": 24, "7d": 168, "30d": 720, "90d": 2160, "1an": 8760}
 
+# Plafond de la plage libre (?from=&to=). Aligné sur la plus longue période
+# prédéfinie : au-delà, l'appelant demanderait plus que ce que l'interface sait
+# proposer. Sans ce plafond, ?from=1970-01-01&to=2100-01-01 fait lire toutes les
+# lignes de la sonde et les agréger en mémoire, sans coût pour l'appelant et
+# pour un résultat que personne ne regarde (issue #37). Le coût est modeste
+# aujourd'hui — 8 090 relevés en base — mais il croît avec l'historique, et
+# c'est une lecture non authentifiée.
+MAX_RANGE_HOURS = PERIOD_HOURS["1an"]
+
 
 def _bucket_seconds_for_range(hours: float) -> int | None:
     """Choisit la taille de bucket d'agrégation en fonction de l'étendue de la plage.
@@ -306,6 +315,15 @@ async def get_releves(
         if end <= start:
             raise HTTPException(status_code=400, detail="'to' doit être postérieur à 'from'")
         hours = (end - start).total_seconds() / 3600
+        if hours > MAX_RANGE_HOURS:
+            raise HTTPException(
+                status_code=400,
+                # ceil et non round : à 365 j + 1 h, un arrondi affichait
+                # « 365 jours demandés, maximum 365 jours » — un message qui se
+                # contredit sur toute la zone la plus probable du dépassement
+                detail=f"Plage trop large : {math.ceil(hours / 24)} jours demandés, "
+                       f"maximum {MAX_RANGE_HOURS // 24} jours",
+            )
     else:
         if period not in PERIOD_HOURS:
             raise HTTPException(status_code=400, detail="Période invalide. Valeurs : 12h, 24h, 7d, 30d, 90d, 1an")
