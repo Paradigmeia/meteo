@@ -1,6 +1,6 @@
 # PLAN.md — maison-temp
 
-**Version** : 1.17
+**Version** : 1.18
 **Date** : 2026-08-30
 **Référence** : SPEC.md v1.9
 
@@ -906,6 +906,25 @@ Procédure, à faire dans cet ordre — le service refuse toute écriture entre 
   soit ~0,6 s de boucle bloquée d'affilée au palier. La limitation traite le
   scénario réaliste — un crawler, un moniteur mal réglé, un onglet emballé — et
   non un adversaire distribué, qui relève de l'agrégation hors boucle
+- **Observé au déploiement, et ça valide le raisonnement ci-dessus** : un test de
+  la limitation lancé **en direct sur l'IP publique** (donc hors Cloudflare) a
+  produit 37 lignes de 429 portant une vraie IP — non couverte par la whitelist
+  CDN — et **CrowdSec a banni cette IP en quelques secondes**. Le bannissement
+  porte sur *tous* les ports : 443, 80 **et 22**. C'est exactement le mécanisme
+  décrit plus haut, vu en vrai, et la sanction est bien celle qu'on redoutait —
+  la perte du SSH.
+  - **Le chemin Cloudflare n'est pas concerné** : vérifié après déploiement, les
+    journaux ne portent que des IP de bordure, donc les 429 servis aux vrais
+    visiteurs restent whitelistés et le domicile ne peut pas être banni. C'est
+    précisément ce que `$realip_remote_addr` protège
+  - **Le chemin direct, lui, n'a jamais journalisé autre chose que l'IP réelle**,
+    avant comme après ce correctif — il n'y a pas de Cloudflare à cet endroit. Ce
+    que la limitation ajoute, ce sont les 429 qui alimentent le scénario. Et pour
+    ce chemin le bannissement est **efficace** (le trafic vient réellement de
+    cette IP) : c'est CrowdSec qui fait son travail sur un scanner d'origine
+  - **Conséquence pratique** : ne plus tester la limitation en direct sur l'IP
+    publique depuis une machine dont on a besoin. Passer par Cloudflare, ou
+    accepter de se faire bannir quelques heures
 - **Interaction avec #57** : `limit_req` écrit une ligne d'erreur par rejet, et
   `logrotate` n'est pas installé sur cette machine (issue #57). Une inondation
   convertit donc un coût CPU borné en écriture disque non bornée. Ça ne remet pas

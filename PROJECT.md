@@ -105,7 +105,22 @@ Légende : 🔲 À faire · 🔄 En cours · ✅ Livré · ⚠️ Dette techniqu
 - **Non déployé** : la configuration nginx vit dans `/etc/nginx/sites-available/`,
   root, et la seule règle `NOPASSWD` du projet porte sur `systemctl restart
   maison-temp`. La copie et le `nginx -t` / `reload` restent à faire à la main
-- PLAN.md v1.15 → v1.17 (décision 23). SPEC.md inchangée
+- **Déployé le 2026-08-30**, après un faux départ : la commande de déploiement
+  copie depuis `/home/debian/meteo`, que le merge ne met pas à jour tout seul —
+  le premier passage a donc recopié l'ancienne version, `nginx -t` et le reload
+  réussissant sur une configuration inchangée. Il faut un `git pull` dans le
+  dépôt de déploiement avant la copie
+- **Vérifié en production** : 60 lectures d'affilée → 23 × 200 et **37 × 429** ;
+  un chargement de dashboard normal (4 requêtes) passe ; 60 requêtes de webhook
+  traversent ; et les journaux ne portent que des IP Cloudflare, donc la
+  whitelist CDN tient et le domicile ne peut pas être banni
+- **Un effet observé au passage, qui valide la décision sur les journaux** : le
+  test lancé **en direct sur l'IP publique** (hors Cloudflare) a fait bannir
+  cette IP par CrowdSec en quelques secondes, sur **tous les ports, SSH compris**.
+  Le chemin Cloudflare est protégé, le chemin direct ne l'a jamais été — et pour
+  lui le bannissement est efficace. À retenir : ne pas tester la limitation en
+  direct sur l'IP publique depuis une machine dont on a besoin
+- PLAN.md v1.15 → v1.18 (décision 23). SPEC.md inchangée
 
 ### 2026-08-30 — Issue #59 : la fenêtre validée n'était pas la fenêtre lue
 
