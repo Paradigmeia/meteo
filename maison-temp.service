@@ -6,7 +6,11 @@ After=network.target
 User=debian
 WorkingDirectory=/home/debian/meteo/backend
 EnvironmentFile=/home/debian/meteo/backend/.env
-ExecStart=/home/debian/meteo/backend/venv/bin/uvicorn main:app --host 127.0.0.1 --port 8042
+# --no-access-log : uvicorn journalisait la ligne de requête complète, clé d'API
+# du webhook Shelly comprise, dans le journal systemd (issue #35). Ces lignes
+# faisaient double emploi avec celles de nginx, seul point d'entrée — uvicorn
+# n'écoute que sur 127.0.0.1. Les logs d'erreur et d'application sont conservés.
+ExecStart=/home/debian/meteo/backend/venv/bin/uvicorn main:app --host 127.0.0.1 --port 8042 --no-access-log
 Restart=on-failure
 RestartSec=5
 NoNewPrivileges=true

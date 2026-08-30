@@ -28,6 +28,42 @@ Légende : 🔲 À faire · 🔄 En cours · ✅ Livré · ⚠️ Dette techniqu
 
 ## Changelog
 
+### 2026-08-30 — Issue #35 : la clé d'API sort des logs
+
+- **Cause** : le webhook Shelly passe la clé en query string (contrainte firmware,
+  décision 6), et le trade-off était assumé depuis juin. La mesure a montré qu'il
+  reposait sur une sous-estimation : **14 522 lignes** dans le seul `access.log`
+  courant, deux semaines d'historique en rotation — et surtout un **second canal
+  que personne n'avait identifié**, uvicorn journalisant lui aussi la ligne de
+  requête complète : 107 occurrences en 24 h dans un journal systemd de 3 Go sans
+  rétention configurée
+- **`nginx/maison-temp.conf`** : `location /api/releve/` dédiée, avec un
+  `log_format` qui écrit `$uri` au lieu de `$request`. Préfixe plus long que
+  `/api/` donc prioritaire ; `/api/releves/` (lecture, au pluriel) ne correspond
+  pas et garde sa journalisation complète, n'ayant pas de secret à cacher
+- **`maison-temp.service`** : `--no-access-log` sur uvicorn. Ces lignes faisaient
+  double emploi avec celles de nginx, seul point d'entrée puisque uvicorn n'écoute
+  que sur `127.0.0.1` — aucune information perdue, une copie supprimée
+- **`access_log off` écarté** : on perdrait la trace que le webhook a été appelé,
+  utile pour diagnostiquer une sonde muette
+- **Vérifié en bac à sable** sur la configuration exacte : webhook journalisé
+  `GET /api/releve/salon` sans paramètres (401 sur clé bidon, donc le proxy
+  marche), lecture au pluriel toujours complète, clé de test absente du log,
+  uvicorn ne journalisant plus la requête (instance de test avec le drapeau), et
+  **les six en-têtes de sécurité toujours présents sur la nouvelle location** —
+  le piège `add_header` de la décision 16 aurait suffi à les faire disparaître
+- **Ce que ça ne règle pas** : Cloudflare journalise l'URL complète de son côté,
+  hors de portée d'un correctif nginx
+- **Les logs déjà écrits contiennent la clé** : le masquage ne vaut que pour
+  l'avenir. Procédure de rotation ajoutée dans PLAN.md, à exécuter pour clore
+  vraiment le sujet — elle demande de reconfigurer les deux URL actions de chaque
+  boîtier Shelly, donc une intervention manuelle
+- **Déploiement** : la conf nginx et l'unité systemd ne sont pas déployées par
+  `update.sh`. Après merge : `git pull`, puis copie de la conf + `nginx -t` +
+  `reload`, et `daemon-reload` + `restart` pour le service
+- PLAN.md v1.9 → v1.10 (décision 17, et décision 6 annotée : son « acceptable »
+  est révisé). SPEC.md inchangée
+
 ### 2026-08-29 — Issue #49 : CSP et en-têtes de sécurité
 
 - **`nginx/maison-temp.conf`** : ajout de `Content-Security-Policy`,
