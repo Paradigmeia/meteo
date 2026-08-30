@@ -318,7 +318,10 @@ async def get_releves(
         if hours > MAX_RANGE_HOURS:
             raise HTTPException(
                 status_code=400,
-                detail=f"Plage trop large : {hours / 24:.0f} jours demandés, "
+                # ceil et non round : à 365 j + 1 h, un arrondi affichait
+                # « 365 jours demandés, maximum 365 jours » — un message qui se
+                # contredit sur toute la zone la plus probable du dépassement
+                detail=f"Plage trop large : {math.ceil(hours / 24)} jours demandés, "
                        f"maximum {MAX_RANGE_HOURS // 24} jours",
             )
     else:

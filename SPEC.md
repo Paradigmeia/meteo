@@ -270,8 +270,8 @@ Fichier `maison-temp-mockup.html` — validée le 2026-05-23. Constitue la réf�
 - Ce que ces routes exposent est donc lisible par quiconque connaît l'URL : des
   températures et taux d'humidité domestiques, sans identité ni localisation plus
   précise que la commune déjà affichée
-- **Plafond de la plage libre** : `/api/releves/{slug}?from=&to=` refuse au-delà
-  d'un an (400). Une lecture non authentifiée ne doit pas pouvoir faire lire un
+- **Plafond de la plage libre** : `/api/releves/{slug}?from=&to=` refuse au-delà de
+  365 jours (400). Une lecture non authentifiée ne doit pas pouvoir faire lire un
   historique arbitrairement long sans coût pour l'appelant. Le plafond vaut la
   plus longue période que l'interface propose, il ne retire donc rien d'atteignable
 - Dashboard en lecture seule, pas d'authentification nécessaire en v1 (réseau familial, données non sensibles)

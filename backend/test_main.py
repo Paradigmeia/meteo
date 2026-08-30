@@ -322,7 +322,29 @@ def test_releves_range_over_one_year_rejected(client):
     assert "2192 jours" in detail and "365 jours" in detail
 
 
-def test_releves_absurd_range_does_not_scan_everything(client):
+def test_releves_one_second_over_the_cap_rejected(client):
+    """La borne est épinglée par le haut aussi : sans ce test, un plafond
+    relâché d'une heure passerait, et le serveur accepterait une plage que le
+    garde-fou client refuse — la divergence exacte qu'on cherche à éviter."""
+    resp = client.get(
+        "/api/releves/salon",
+        params={"from": "2025-01-01T00:00:00.000Z", "to": "2026-01-01T00:00:01.000Z"},
+    )
+    assert resp.status_code == 400
+
+
+def test_releves_message_never_contradicts_itself_just_over_the_cap(client):
+    """Juste au-dessus de la borne, un arrondi affichait « 365 jours demandés,
+    maximum 365 jours »."""
+    resp = client.get(
+        "/api/releves/salon",
+        params={"from": "2025-01-01T00:00:00.000Z", "to": "2026-01-01T01:00:00.000Z"},
+    )
+    assert resp.status_code == 400
+    assert "366 jours demandés" in resp.json()["detail"]
+
+
+def test_releves_absurd_range_rejected(client):
     """La plage qui motivait l'issue : bornes extrêmes, coût nul pour l'appelant."""
     resp = client.get(
         "/api/releves/salon",

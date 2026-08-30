@@ -31,7 +31,10 @@ export const MAX_RANGE_HOURS = 8760
 export function isRangeTooLong(customRange) {
   if (!customRange?.from || !customRange?.to) return false
   const heures = (new Date(customRange.to) - new Date(customRange.from)) / 3_600_000
-  return Number.isFinite(heures) && heures > MAX_RANGE_HOURS
+  // Une date illisible donne NaN, et `NaN > x` vaut false : la requête part, et
+  // c'est voulu — le 400 « format de date invalide » du serveur est plus précis
+  // que « plage trop large »
+  return heures > MAX_RANGE_HOURS
 }
 
 export function rangeBoundsMs(quickCode, customRange) {

@@ -357,7 +357,7 @@ export default function AnalyseView({ sondes, meteo, onBack }) {
             </div>
           )}
 
-          {relevesFailed && !rangeTooLong && (
+          {relevesFailed && (
             <div className="analyse-error" role="status">
               <Icon name="alert-triangle" />
               Certaines données n'ont pas pu être chargées — l'affichage peut
@@ -367,6 +367,7 @@ export default function AnalyseView({ sondes, meteo, onBack }) {
 
           <div className="chart-card" ref={chartCardRef}>
             <AnalyseChart
+              emptyMessage={rangeTooLong ? 'Aucune donnée : resserrez les dates ci-dessus' : undefined}
               mode={mode}
               lines={visibleLines}
               bands={visibleBands}

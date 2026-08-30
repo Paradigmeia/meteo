@@ -535,16 +535,37 @@ Procédure, à faire dans cet ordre — le service refuse toute écriture entre 
   plafond vaut la plus longue période prédéfinie : il ne retire rien
   d'atteignable par l'interface, et le message dit **ce qui a été demandé et ce
   qui est admis**, sans quoi l'appelant ne sait pas de combien resserrer
-- **Borne inclusive** : un an pile passe, des deux côtés. Le serveur rejette sur
-  `>` et le garde-fou client aussi — une divergence d'un côté ou de l'autre
-  produirait soit un blocage sur une plage que l'API accepte, soit le bandeau
-  d'échec opaque qu'on cherche justement à éviter. Un test de chaque côté épingle
-  la borne
+- **Le plafond vaut 365 jours, pas « un an »** : une année bissextile ou une
+  année calendaire à cheval sur un changement d'heure dépasse la borne de 24 h ou
+  d'1 h. Front et back sont d'accord — ce n'est pas une divergence — mais la
+  formulation « un an » est trompeuse et l'utilisateur qui saisit la même date un
+  an plus tard peut être refusé une année sur quatre
+- **Borne inclusive** : 365 jours pile passent, des deux côtés. Le serveur rejette
+  sur `>` et le garde-fou client aussi — une divergence produirait soit un blocage
+  sur une plage que l'API accepte, soit le bandeau d'échec opaque qu'on cherche
+  justement à éviter. Deux tests l'épinglent de chaque côté, **et par le haut**
+  (une seconde au-dessus doit être refusée) : sans ce second test, un plafond
+  relâché d'une heure passait inaperçu
+- **Message d'erreur arrondi par excès** (`math.ceil`) : avec un arrondi, tout
+  dépassement entre 365 j et 365 j + 12 h affichait « 365 jours demandés, maximum
+  365 jours » — un message qui se contredit précisément dans la zone la plus
+  probable
 - **Garde-fou client en plus du serveur**, et non à la place : sans lui, une
   sélection de dates trop large tombait dans le chemin d'échec générique de #36
   et affichait « certaines données n'ont pas pu être chargées ». C'est faux et
   inactionnable — le problème est la sélection de l'utilisateur, la seule chose
   qu'il puisse corriger. Le message dédié le dit
+- **jsdom et `@testing-library/react` introduits** : la décision 14 avait pu se
+  passer d'un DOM parce qu'elle testait de la géométrie pure. Ici le défaut
+  n'était pas dans la fonction pure mais dans son **câblage** — le graphique
+  restait dessiné avec les relevés de la plage précédente, sous un bandeau
+  annonçant qu'aucune donnée n'avait été chargée. Aucun test de fonction pure ne
+  pouvait l'attraper ; retirer le garde-fou du hook ou masquer le bandeau ne
+  faisait échouer aucune vérification. Le hook et la vue sont désormais rendus
+  pour de vrai
+- **Résultat dérivé plutôt que remis à zéro dans l'effet** : y appeler `setState`
+  provoque un rendu en cascade, et le linter le refuse. `useAnalyseReleves` rend
+  donc une constante de module figée quand la plage dépasse le plafond
 - **Duplication assumée de la constante** entre `backend/main.py` et
   `frontend/src/utils/analyseUtils.js`. Il n'y a pas de schéma partagé entre les
   deux côtés dans ce projet, et l'introduire pour une constante serait

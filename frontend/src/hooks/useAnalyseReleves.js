@@ -3,6 +3,8 @@ import { isRangeTooLong } from '../utils/analyseUtils'
 
 const API = import.meta.env.VITE_API_URL ?? ''
 
+const VIDE = Object.freeze({})
+
 // Récupère en une fois les relevés bruts de toutes les sondes actives,
 // indépendamment des cases cochées. Ce n'est pas un oubli : `key` sert de
 // dépendance à l'effet ci-dessous, et la faire dépendre des cases relancerait un
@@ -71,5 +73,15 @@ export function useAnalyseReleves(slugs, period, customRange) {
     }
   }, [key, period, customRange?.from, customRange?.to, tooLong])
 
-  return { data, failed, rangeTooLong: tooLong }
+  // Le résultat est dérivé plutôt que remis à zéro dans l'effet : y appeler
+  // setState provoque un rendu en cascade (et le linter le refuse). Vider est
+  // indispensable — sans ça le graphique reste dessiné avec les relevés de la
+  // plage précédente, sur un axe qui ne correspond à aucune des dates saisies,
+  // sous un bandeau annonçant que rien n'a été chargé. `failed` est ramené à
+  // false pour la même raison : ce n'est pas une panne, c'est une saisie, et le
+  // bandeau générique de #36 proposerait une « nouvelle tentative automatique »
+  // qui n'arrivera jamais. VIDE est une constante de module pour ne pas rendre
+  // une nouvelle référence à chaque rendu.
+  if (tooLong) return { data: VIDE, failed: false, rangeTooLong: true }
+  return { data, failed, rangeTooLong: false }
 }
