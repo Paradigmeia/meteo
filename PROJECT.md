@@ -45,9 +45,36 @@ Légende : 🔲 À faire · 🔄 En cours · ✅ Livré · ⚠️ Dette techniqu
   inchangés — période invalide et plage absurde (#37) en 400, date non
   normalisable (#59) en 400, clé fausse et clé accentuée (#44) en 401, sonde
   inconnue en 404. Aucun traceback
-- **Signalé, non traité** : `starlette.testclient` avertit désormais que l'usage
-  d'`httpx` y est déprécié au profit d'`httpx2`. Sans effet aujourd'hui, à
-  regarder à la prochaine remontée
+- **Corrigé après review adversariale** :
+  - **`starlette` n'était pas figé**, alors que le fichier promet des versions
+    figées et que c'est *le* paquet que la PR remonte. `fastapi 0.141.1` le
+    déclare `starlette>=0.46.0`, **sans borne haute** : une installation neuve
+    aurait pris la starlette du jour, pas celle qui a été testée. C'est le
+    mécanisme même qui a créé cette issue — un pin fastapi décidant seul de la
+    version de starlette — et le remplacer par une absence de borne n'aurait pas
+    été un progrès. `starlette==1.6.0` ajouté explicitement
+  - **deux ruptures de comportement de starlette 1.x** que les 75 tests ne
+    voyaient pas, désormais couvertes : un corps JSON **sans en-tête
+    `Content-Type`** passait en 200 et rend maintenant 422 — la suite y était
+    structurellement aveugle, tous ses POST passant par `json=` qui pose
+    l'en-tête ; et une **clé d'API absente** rend 401 au lieu de 403. Aucun
+    client actuel n'est concerné, mais le Shelly n'émettant qu'une fois, un futur
+    client POST sans en-tête perdrait ses relevés sans bruit. Les deux tests
+    échouent sur l'ancienne pile et passent sur la nouvelle
+  - **la justification était imprécise** : « CVE-2024-47874, corrigée en 0.40.0 »
+    sous-vendait la remontée. L'audit OSV de la review montre que 0.38.6 porte
+    plusieurs avis au-delà de celui-ci, dont un empoisonnement de `request.url.path`
+    par en-tête `Host` non validé, sans rapport avec le multipart — et que 0.40.0
+    en porterait encore. `pip-audit` sur la pile retenue ne remonte **aucun avis**
+    sur les dépendances de l'application
+- **Tests** : 77 backend (2 ajoutés), 54 frontend inchangés
+- **Signalé, non traité** : `starlette.testclient` avertit que l'usage d'`httpx`
+  y est déprécié au profit d'`httpx2` ; et `scripts/update.sh` fait un
+  `pip install` **sans `--upgrade`** dans le venv existant, ce qui laisse une
+  dizaine de paquets transitifs en arrière — la production ne tournerait donc pas
+  exactement sur la pile testée. Les 77 tests passent dans cet état (vérifié en
+  review), mais ça mérite un fichier verrouillé complet plutôt qu'un `--upgrade`
+  posé à la va-vite
 
 ### 2026-08-30 — Issue #54 : `Permissions-Policy`
 
