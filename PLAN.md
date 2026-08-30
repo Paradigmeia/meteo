@@ -1,6 +1,6 @@
 # PLAN.md — maison-temp
 
-**Version** : 1.15
+**Version** : 1.17
 **Date** : 2026-08-30
 **Référence** : SPEC.md v1.9
 
@@ -808,6 +808,112 @@ Procédure, à faire dans cet ordre — le service refuse toute écriture entre 
   l'interface émet réellement — six périodes prédéfinies et deux plages libres en
   `Z`, sur les trois sondes — rendent des réponses identiques avant et après. Seules
   les écritures avec décalage changent, ce qui est l'objet du correctif
+
+
+### Décision 23 (2026-08-30)
+
+- **Contexte** : les routes de lecture sont publiques par conception (SPEC §6),
+  le service tourne sur **un seul worker uvicorn**, et `_aggregate` parcourt les
+  lignes dans le thread de la boucle d'événements. Rien ne limitait le nombre de
+  requêtes (issue #60). Le plafond de #37 borne le coût d'**une** requête, pas
+  leur nombre
+- **Ce qu'on protège n'est pas la disponibilité du dashboard, c'est les
+  relevés** : le Shelly n'émet qu'une fois et ne réessaie pas (décision 6). Une
+  boucle d'événements occupée, ce sont des mesures définitivement perdues
+- **Prérequis que l'issue ne mentionnait pas : rétablir l'IP client réelle.** Le
+  site est derrière Cloudflare (`cf-ray` présent, `cf-cache-status: DYNAMIC` —
+  rien n'est mis en cache, chaque lecture atteint l'origine), et aucun
+  `set_real_ip_from` n'était configuré. `$binary_remote_addr` était donc l'IP
+  d'un nœud de bordure : **202 IP distinctes** relevées sur les lectures dans
+  `access.log`. Une limitation posée là-dessus aurait été exactement à l'envers
+  — trop stricte pour des visiteurs légitimes groupés sur un même nœud, et
+  presque sans effet sur un client unique réparti sur 202 nœuds. Les plages
+  Cloudflare sont posées dans le bloc `server` et non en contexte http, où elles
+  vaudraient pour tous les sites de la machine
+- **Le webhook n'est pas limité, et c'est plus important qu'il n'y paraît.** Une
+  fois l'IP réelle rétablie, le Shelly émet depuis l'IP publique du domicile,
+  **la même que les navigateurs de la maison**. Un compteur partagé ferait donc
+  jeter des relevés par les gens en train de consulter le dashboard — exactement
+  la perte qu'on cherche à éviter. La séparation tient à ce que `^~ /api/releve/`
+  est une location distincte de `/api/`, donc n'hérite de rien ; déplacer le
+  `limit_req` dans le bloc `server` le ferait hériter partout, webhook compris
+- **10r/s, rafale de 20, `nodelay`** — l'interface rafraîchit tout toutes les
+  30 s et la vue Analyse tire en `Promise.all`, donc une rafale légitime est
+  **simultanée** (d'où `nodelay`, qui la laisse passer sans file d'attente). Un
+  chargement de dashboard fait **4 requêtes** — `/api/sondes`, `/api/meteo` et
+  une par sonde active, et il n'y en a que deux (`salon`, `exterieur`) — donc 20
+  couvre cinq onglets rechargés en même temps derrière l'IP du domicile. Le
+  maximum observé sur six mois d'`access.log`, **toutes IP confondues**, est de
+  **7 req/s**. La première rédaction annonçait 5 req/s et « ~6 requêtes » : le 5
+  était mesuré **par IP de bordure**, c'est-à-dire sur la clé d'avant le
+  correctif, puis servait à dimensionner une limite portant sur celle d'après
+- **La clé n'est pas `$binary_remote_addr`.** Sur seize octets il distingue les
+  /128 : vérifié, 60 requêtes depuis 60 adresses d'un même /64 passaient toutes
+  quand une seule adresse était bien limitée. Un client disposant d'un /64 —
+  l'allocation résidentielle standard, et Cloudflare sert ses clients en IPv6
+  même vers une origine v4 — n'aurait donc pas été limité du tout. Une `map`
+  regroupe les IPv6 par /64, en traitant séparément les trois formes compressées
+  (`A:B:C::`, `A:B::`, `A::`) dont les groupes de queue sont nuls. Vérifié dans
+  les deux sens : le même /64 est limité, et 60 /64 distincts — comme 60 IPv4
+  distinctes — passent sans sur-groupement
+- **Le webhook a son propre compteur, très large, plutôt qu'aucun compteur.**
+  « Pas le même seau » ne veut pas dire « pas de seau » : laisser cette location
+  sans limitation, c'est laisser un chemin non authentifié et sans borne vers la
+  même boucle mono-worker que celle qu'on protège. Le Shelly émet 107
+  relevés/jour, soit 0,0012 req/s ; `2r/s burst=50` laisse un facteur 1600, et
+  une requête de webhook est un simple INSERT, sans agrégation
+- **Les journaux continuent d'écrire l'IP de bordure** (`$realip_remote_addr`),
+  et c'est délibéré. **CrowdSec** est actif sur cette machine avec son bouncer
+  nftables, lit `/var/log/nginx/*.log`, et sa `cdn-whitelist` neutralise
+  aujourd'hui les IP Cloudflare. Y écrire l'IP client réelle rendrait ces lignes
+  éligibles aux scénarios, pour un bénéfice nul — le trafic HTTP arrive par les
+  IP de Cloudflare, donc un blocage nftables sur l'IP cliente ne filtrerait rien
+  — et un risque réel : l'IP publique du domicile deviendrait bannissable, et le
+  blocage couperait **tout** le trafic entrant depuis la maison, SSH compris. La
+  limitation a besoin de l'IP réelle ; les journaux, non. Le bloc `server` HTTPS
+  reçoit donc un `access_log` explicite, là où il héritait du format par défaut
+- **429 et non le 503 par défaut** : le client est en cause, pas le serveur, et
+  un 503 se confond avec une vraie panne dans les journaux
+- **L'origine est joignable en direct** (Cloudflare est contournable ici, vérifié
+  en résolvant le domaine sur l'IP publique). C'est précisément pourquoi la
+  limitation doit être côté origine et pas seulement chez Cloudflare. Aucune
+  usurpation possible pour autant : nginx n'accorde le remplacement d'IP qu'aux
+  pairs listés, une requête directe garde son IP réelle et son en-tête
+  `CF-Connecting-IP` est ignoré — les deux sens ont été vérifiés
+- **Agrégation hors boucle d'événements : remise à plus tard, avec un seuil
+  chiffré.** Mesuré sur la requête au plafond (`period=1an`) :
+
+  | Historique | Lignes lues | Agrégation bloquante | req/s pour saturer |
+  |---|---|---|---|
+  | `exterieur` aujourd'hui | 5 612 | 6,6 ms | ~150 |
+  | `salon` aujourd'hui | 2 525 | 3,1 ms | ~320 |
+  | projection 21 840 lignes | 21 840 | 27,7 ms | ~36 |
+
+  Le coût croît linéairement avec le nombre de lignes — mais **ce nombre est
+  lui-même plafonné** : la fenêtre ne dépasse pas un an, donc à 79 relevés/jour
+  `exterieur` plafonne vers **28 800 lignes, soit ~36 ms**, atteint mi-2027. Ce
+  n'est pas une croissance sans fin, c'est un palier. Les 10 ms tombent vers
+  **fin septembre 2026** — l'issue présentait 27,7 ms comme une projection à
+  cinq ans, c'est en réalité l'échéance d'un historique d'un an à la cadence
+  actuelle. Déclencheur retenu : **agrégation au-delà de 10 ms sur la requête au
+  plafond**, à traiter en SQL (`GROUP BY` sur un bucket calculé) plutôt qu'avec
+  `run_in_threadpool`, qui déplacerait le calcul sans le sortir du GIL
+- **Ce que la limitation ne protège pas.** La colonne « req/s pour saturer »
+  ci-dessus vaut `1/T` : c'est ce qu'il faut pour occuper **100 %** d'une boucle,
+  et ce n'est pas comparable à une limite qui est **par IP**. Au palier de 2027,
+  trois ou quatre IP distinctes suffisent, et il n'y a aucun plafond global. De
+  même, `burst=20 nodelay` autorise 20 requêtes instantanées depuis une seule IP,
+  soit ~0,6 s de boucle bloquée d'affilée au palier. La limitation traite le
+  scénario réaliste — un crawler, un moniteur mal réglé, un onglet emballé — et
+  non un adversaire distribué, qui relève de l'agrégation hors boucle
+- **Interaction avec #57** : `limit_req` écrit une ligne d'erreur par rejet, et
+  `logrotate` n'est pas installé sur cette machine (issue #57). Une inondation
+  convertit donc un coût CPU borné en écriture disque non bornée. Ça ne remet pas
+  en cause la limitation, ça renforce #57
+- **Non retenu** : plusieurs workers uvicorn (SQLite en écriture concurrente
+  demande de l'attention, et le cache météo en mémoire serait dupliqué par
+  worker), et `limit_conn`, qui répond à l'épuisement de connexions et non au
+  débit — hors sujet de cette issue
 
 ---
 
