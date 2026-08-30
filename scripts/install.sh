@@ -69,15 +69,23 @@ echo "=== 6. sudo sans mot de passe pour le seul restart de maison-temp ==="
 # sudo ne peut pas demander de mot de passe : le restart échoue et, sous `set -e`,
 # le déploiement se termine sans jamais afficher son verdict.
 #
-# Le chemin absolu compte doublement. Une règle sur `systemctl` sans chemin
-# serait contournable via le PATH ; un chemin qui ne serait pas celui que sudo
-# résout au moment de l'appel ne s'appliquerait tout simplement pas. On prend
-# donc celui de cette machine plutôt que de le supposer.
-SYSTEMCTL=$(command -v systemctl)
-case "$SYSTEMCTL" in
-    /*) ;;
-    *) echo "✗ chemin absolu de systemctl introuvable"; exit 1 ;;
-esac
+# Le chemin inscrit dans la règle doit être celui que sudo résoudra à l'appel, et
+# sudo n'utilise pas le PATH de l'utilisateur mais son propre `secure_path`. Sur
+# cette machine les deux diffèrent : le PATH de `debian` commence par
+# ~/.local/bin et ~/bin, deux répertoires qu'il peut écrire, et ne contient pas
+# /usr/sbin. Un `command -v systemctl` y trouverait un homonyme et poserait soit
+# une règle qui ne s'applique jamais, soit — bien pire — un NOPASSWD sur un
+# binaire que `debian` peut réécrire, c'est-à-dire root sans mot de passe. On
+# cherche donc dans les répertoires système, dans l'ordre de `secure_path`.
+SYSTEMCTL=""
+for d in /usr/local/sbin /usr/local/bin /usr/sbin /usr/bin /sbin /bin; do
+    if [ -x "$d/systemctl" ]; then SYSTEMCTL="$d/systemctl"; break; fi
+done
+[ -n "$SYSTEMCTL" ] || { echo "✗ systemctl introuvable dans les répertoires système"; exit 1; }
+# Une règle NOPASSWD ne vaut que ce que vaut le binaire qu'elle vise.
+[ -n "$(find "$SYSTEMCTL" -maxdepth 0 -user root ! -perm /022)" ] || \
+    { echo "✗ $SYSTEMCTL n'appartient pas à root ou est modifiable par d'autres"; exit 1; }
+
 # mktemp plutôt qu'un nom fixe dans /tmp : le fichier est écrit par `debian`
 # puis installé par root, et un nom prévisible dans un répertoire ouvert à tous
 # est un point d'entrée par lien symbolique.
@@ -86,20 +94,29 @@ trap 'rm -f "$SUDOERS_TMP"' EXIT
 cat > "$SUDOERS_TMP" <<SUDOERS
 debian ALL=(root) NOPASSWD: $SYSTEMCTL restart maison-temp
 SUDOERS
-# Jamais de copie sans contrôle préalable : une erreur de syntaxe dans
+# Jamais de pose sans contrôle préalable : une erreur de syntaxe dans
 # /etc/sudoers.d verrouille sudo sur la machine — y compris pour la réparer.
 sudo visudo -cf "$SUDOERS_TMP"
-sudo install -o root -g root -m 0440 "$SUDOERS_TMP" /etc/sudoers.d/maison-temp
-if sudo -n -l "$SYSTEMCTL" restart maison-temp > /dev/null 2>&1; then
-    echo "✓ restart sans mot de passe autorisé"
-else
-    # `sudo -l` est lui-même soumis au mot de passe : ne pas conclure à l'échec
-    echo "⚠️  vérification impossible sans mot de passe, à contrôler à la main :"
-    echo "   sudo -l $SYSTEMCTL restart maison-temp"
-fi
+# Pose atomique. `install` écrit dans le fichier de destination : interrompu, il
+# y laisserait une ligne tronquée, soit exactement la panne que le contrôle
+# ci-dessus cherche à éviter. On installe sous un nom que sudo ignore — il saute
+# les fichiers dont le nom contient un point — puis on renomme, ce qui est
+# atomique à l'intérieur d'un même système de fichiers.
+sudo install -o root -g root -m 0440 "$SUDOERS_TMP" /etc/sudoers.d/.maison-temp.nouveau
+sudo mv /etc/sudoers.d/.maison-temp.nouveau /etc/sudoers.d/maison-temp
 
 echo ""
 echo "=== Smoke tests ==="
+# `sudo -l <commande>` répond « autorisée ? », pas « autorisée sans mot de
+# passe ? » : `debian` ayant déjà (ALL : ALL) ALL, il répond oui à tout, y
+# compris à `restart nginx`, et ne prouverait donc rien. Le seul contrôle qui
+# porte est d'exécuter la commande avec -n — cache d'authentification vidé au
+# préalable, sans quoi les sudo des étapes précédentes la feraient passer quelle
+# que soit la règle.
+sudo -k
+sudo -n "$SYSTEMCTL" restart maison-temp 2>/dev/null \
+    && echo "✓ restart sans mot de passe autorisé" \
+    || echo "✗ règle sudoers inopérante — update.sh s'arrêtera avant ses contrôles"
 sleep 2
 systemctl is-active maison-temp && echo "✓ Service actif" || echo "✗ Service inactif"
 curl -sf http://127.0.0.1:8042/api/sondes > /dev/null && echo "✓ API /api/sondes répond" || echo "✗ API muette"

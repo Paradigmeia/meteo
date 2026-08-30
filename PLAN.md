@@ -102,11 +102,16 @@ PORT=8042
 
 ### Règle sudo (hors dépôt)
 
-`/etc/sudoers.d/maison-temp`, en `0440`, posée par `scripts/install.sh` :
+`/etc/sudoers.d/maison-temp`, en `0440`, posée par `scripts/install.sh`. Sur
+cette machine :
 
 ```
 debian ALL=(root) NOPASSWD: /usr/bin/systemctl restart maison-temp
 ```
+
+Le chemin n'est pas figé dans le script : il est cherché dans les répertoires
+système au moment de l'installation, `sudo` résolvant la commande via son
+`secure_path` et non via le `PATH` de l'utilisateur.
 
 Elle existe pour que `scripts/update.sh` aille jusqu'au bout hors terminal
 interactif. Cf. décision 20 pour la portée exacte de la concession et les
@@ -646,19 +651,40 @@ Procédure, à faire dans cet ordre — le service refuse toute écriture entre 
   sous `debian` pourrait redémarrer `maison-temp` sans s'authentifier, soit une
   coupure de quelques secondes du dashboard. C'est le pire cas, et il est
   accepté pour ce service
-- **Le chemin absolu est load-bearing, deux fois** : une règle sur `systemctl`
-  sans chemin serait contournable via le `PATH` ; et un chemin qui ne serait pas
-  celui que `sudo` résout à l'appel ne s'appliquerait tout simplement pas — la
-  règle serait silencieusement inopérante. `install.sh` prend donc celui de la
-  machine (`command -v systemctl`) au lieu de le supposer, et refuse de
-  continuer s'il n'est pas absolu
-- **Le fichier est validé avant d'être posé** (`visudo -cf` sur une copie
-  temporaire, puis `install -m 0440`) : une erreur de syntaxe dans
-  `/etc/sudoers.d` verrouille `sudo` sur la machine, y compris pour la réparer
-- **Le contrôle final ne fait pas échouer l'installation** : `sudo -l` est
-  lui-même soumis au mot de passe selon la configuration, et son échec ne prouve
-  donc pas que la règle est mauvaise. Il affiche un avertissement et la commande
-  à passer à la main
+- **Le chemin doit être celui que `sudo` résoudra, pas celui que l'utilisateur
+  résout** : `sudo` cherche la commande dans son `secure_path`
+  (`/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin`), le shell de
+  `debian` dans un `PATH` qui commence par `~/.local/bin` et `~/bin` — deux
+  répertoires qu'il peut écrire — et qui ne contient même pas `/usr/sbin`. Un
+  `command -v systemctl` y trouverait un homonyme et poserait soit une règle qui
+  ne s'applique jamais, soit un `NOPASSWD` sur un binaire réinscriptible par
+  `debian`, c'est-à-dire root sans mot de passe. `install.sh` parcourt donc les
+  répertoires système dans l'ordre de `secure_path`, et vérifie que le binaire
+  trouvé appartient à root sans être modifiable par d'autres. **Ce n'est pas la
+  justification qui figurait d'abord ici** : « une règle sur `systemctl` sans
+  chemin serait contournable via le `PATH` » est fausse — `visudo` refuse une
+  commande non qualifiée (`expected a fully-qualified path name`), le cas
+  n'existe pas. La review a relevé la fausse prémisse et le vrai défaut qu'elle
+  masquait
+- **Le fichier est validé avant d'être posé, et posé atomiquement** : `visudo
+  -cf` sur une copie temporaire, puis `install` sous un nom que `sudo` ignore (il
+  saute les fichiers dont le nom contient un point) et `mv` en place. Une erreur
+  de syntaxe dans `/etc/sudoers.d` verrouille `sudo` sur la machine, y compris
+  pour la réparer — et `install` écrivant dans le fichier de destination, une
+  interruption au mauvais moment y laisserait une ligne tronquée, soit exactement
+  la panne que le contrôle cherche à éviter
+- **Le contrôle final exécute la commande, il ne se contente pas de la
+  consulter** : `sudo -l <commande>` répond « autorisée ? », pas « autorisée sans
+  mot de passe ? ». `debian` ayant déjà `(ALL : ALL) ALL`, il répond oui à tout —
+  mesuré : `sudo -n -l systemctl restart nginx` sort en 0. Le contrôle initial ne
+  pouvait donc pas échouer, y compris si le fichier n'avait pas été posé. Il est
+  remplacé par `sudo -k` puis `sudo -n … restart maison-temp` : le `-k` est
+  indispensable, sans lui le cache d'authentification des étapes précédentes
+  ferait passer le test quelle que soit la règle. Vérifié après `sudo -k` :
+  `restart nginx`, `stop maison-temp` et `is-active maison-temp` sortent tous
+  les trois en 1. Le contrôle est rendu avec les autres smoke tests, en `✓`/`✗`,
+  sans faire échouer une installation par ailleurs réussie — c'est la leçon de
+  cette issue même
 - **Le motif est déjà en place sur ce serveur** pour d'autres projets
   (`fail2ban-client status`, `smartctl`, `needrestart -b`) : c'est une
   convention existante, pas une exception créée ici
