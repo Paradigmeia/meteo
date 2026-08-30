@@ -44,10 +44,18 @@ def _key_is_valid(key: str) -> bool:
     (issue #44). Comparer les encodages UTF-8 conserve la propriété de temps
     constant et traite une clé non-ASCII pour ce qu'elle est : une clé invalide.
 
-    L'encodage ne peut pas échouer ici : une séquence d'octets invalide dans une
-    URL est remplacée par U+FFFD au décodage, et un en-tête est décodé en
-    latin-1 — ni l'un ni l'autre ne produit de demi-codet isolé. Vérifié sur
-    %ED%A0%80 et %FF%FE, qui donnent bien 401 et non 500.
+    L'encodage ne peut pas échouer **pour les deux appelants actuels** : une
+    séquence d'octets invalide dans une URL est remplacée par U+FFFD au
+    décodage, et un en-tête est décodé en latin-1 — ni l'un ni l'autre ne
+    produit de demi-codet isolé. Vérifié sur %ED%A0%80 et %FF%FE, qui donnent
+    401 et non 500. Ce n'est pas une propriété de la fonction : un corps JSON,
+    lui, peut porter un demi-codet isolé (cf. issue #62). Tout nouvel appelant
+    doit donc revérifier cette hypothèse.
+
+    L'entrée de l'appelant est le **premier** argument, le secret le second :
+    compare_digest boucle sur la longueur du second, donc le nombre
+    d'itérations ne dépend que du secret. Inverser l'ordre ferait dépendre le
+    temps de réponse de la longueur envoyée par l'appelant.
 
     Le contrôle sur API_KEY vide est indispensable : sans lui, une installation
     dont la clé n'a pas été renseignée accepterait une clé vide.

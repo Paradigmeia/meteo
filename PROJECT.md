@@ -44,21 +44,37 @@ Légende : 🔲 À faire · 🔄 En cours · ✅ Livré · ⚠️ Dette techniqu
   refuse d'émettre un en-tête non-ASCII, mais un en-tête transporte des octets,
   que Starlette décode en latin-1. Le test l'exerce avec des octets bruts
 - **Un garde-fou écrit puis retiré** : le `try/except UnicodeEncodeError` initial
-  n'était atteignable par aucune entrée — une séquence invalide dans une URL est
-  remplacée par U+FFFD, un en-tête est décodé en latin-1. Vérifié sur
-  `%ED%A0%80` et `%FF%FE` avant de le supprimer plutôt que de le garder pour la
-  forme
+  n'était atteignable par **aucun des deux appelants** — une séquence invalide
+  dans une URL est remplacée par U+FFFD, un en-tête est décodé en latin-1.
+  Vérifié sur `%ED%A0%80` et `%FF%FE` avant de le supprimer plutôt que de le
+  garder pour la forme. La formulation initiale (« aucune entrée ») était trop
+  large : un corps JSON peut porter un demi-codet isolé, cf. #62
 - **Trouvé au passage** : rien ne testait le cas d'une `API_KEY` non renseignée,
   où `compare_digest("", "")` aurait accepté une clé vide. Le contrôle existait,
   il est maintenant tenu par un test
 - **Tests** : 57 (6 ajoutés), dont un qui vérifie que **toutes** les clés fausses
   donnent le même statut, quel que soit leur alphabet — un statut qui varie selon
-  la forme de la clé est un canal d'information. Mutations tuées : retour à la
-  comparaison de chaînes (3 échecs) · contrôle retiré du webhook (3) · toute clé
-  refusée (14) · toute clé acceptée (4) · contrôle d'`API_KEY` vide retiré (1).
-  **Un mutant survit et c'est irréductible** : remplacer `compare_digest` par
-  `==` ne change aucun comportement observable — la résistance aux attaques
-  temporelles ne se teste pas en boîte noire
+  la forme de la clé est un canal d'information. Le jeu de clés fausses passe sur
+  les **deux** endpoints : sans ça, toute l'authentification par en-tête ne
+  tenait qu'à une seule assertion
+- **Corrections après review adversariale** (PR #61) : trois entrées ajoutées au
+  jeu de clés fausses (`test`, `test-ke`, `test-keyX`) — sans elles, une
+  comparaison tronquée aux 4 premiers octets passait les 57 tests, alors que
+  c'est précisément la famille que `compare_digest` est censée traiter. Les
+  chiffres de mutation étaient sous-comptés (mesurés avant l'ajout des derniers
+  tests) et le commentaire du test par en-tête décrivait un mécanisme inexact :
+  le client de test relit les octets en iso-8859-1 et les ré-encode, la fonction
+  reçoit `clÃ©-Ã©` et non `clé-é` — non-ASCII dans les deux cas, donc le test
+  reste valide, mais pas pour la raison écrite
+- **Mutations, toutes tuées** (mesurées sur la suite finale) : toute clé refusée
+  (14 échecs) · toute clé acceptée (6) · contrôle retiré du webhook GET (5) ·
+  comparaison de chaînes (4) · contrôle retiré de `require_api_key` (2) ·
+  troncature à 4 octets (1) · préfixe accepté (1) · contrôle d'`API_KEY` vide
+  retiré (1). **Un mutant survit et c'est irréductible** : remplacer
+  `compare_digest` par `==` ne change aucun comportement observable — la
+  résistance aux attaques temporelles est une propriété du code, pas de ses
+  réponses. L'ordre des arguments est dans le même cas, il est consigné en
+  commentaire faute de pouvoir être testé
 - PLAN.md v1.11 → v1.12 (décision 19). SPEC.md inchangée
 
 ### 2026-08-30 — Issue #37 : plafond sur la plage libre, lecture publique actée

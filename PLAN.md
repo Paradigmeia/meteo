@@ -1,7 +1,7 @@
 # PLAN.md — maison-temp
 
 **Version** : 1.12
-**Date** : 2026-08-29
+**Date** : 2026-08-30
 **Référence** : SPEC.md v1.8
 
 ---
@@ -598,11 +598,18 @@ Procédure, à faire dans cet ordre — le service refuse toute écriture entre 
   HTTP ne transporte pas d'UTF-8, et un client refuse même de l'émettre — mais il
   transporte des octets, que Starlette décode en latin-1. La valeur qui arrive
   contient alors bien du non-ASCII. Le test l'exerce avec des octets bruts
-- **Pas de garde contre un encodage impossible** : une séquence d'octets invalide
-  dans une URL est remplacée par U+FFFD au décodage, et un en-tête est décodé en
-  latin-1 — ni l'un ni l'autre ne produit de demi-codet isolé. Vérifié sur
-  `%ED%A0%80` et `%FF%FE`, qui donnent 401. Un `try/except UnicodeEncodeError`
-  avait été écrit puis retiré : il n'était atteignable par aucune entrée
+- **Pas de garde contre un encodage impossible, pour les deux appelants
+  actuels** : une séquence d'octets invalide dans une URL est remplacée par
+  U+FFFD au décodage, et un en-tête est décodé en latin-1 — ni l'un ni l'autre ne
+  produit de demi-codet isolé. Vérifié sur `%ED%A0%80` et `%FF%FE`, qui donnent
+  401. Un `try/except UnicodeEncodeError` avait été écrit puis retiré : il
+  n'était atteignable par aucun de ces deux chemins. **Ce n'est pas une propriété
+  de la fonction** : un corps JSON peut, lui, porter un demi-codet isolé — la
+  review l'a montré, c'est l'issue #62, et le correctif y est ailleurs
+- **Ordre des arguments load-bearing** : `compare_digest` boucle sur la longueur
+  du **second**. L'entrée de l'appelant est donc passée en premier et le secret
+  en second, pour que le nombre d'itérations ne dépende que du secret. Consigné
+  dans la docstring, aucun test ne pouvant l'attraper
 - **Le contrôle sur `API_KEY` vide est conservé et désormais testé** : sans lui,
   une installation dont la clé n'a pas été renseignée accepterait une clé vide,
   `compare_digest("", "")` étant vrai
