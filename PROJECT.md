@@ -58,16 +58,43 @@ Légende : 🔲 À faire · 🔄 En cours · ✅ Livré · ⚠️ Dette techniqu
 - **Deux tests fusionnés en un test paramétré** : les décalages positif et négatif
   mouraient sur exactement les mêmes mutations. Les garder séparés laissait croire
   qu'ils couvraient des choses différentes
-- **Tests** : 71 backend (6 ajoutés). **Neuf mutations, toutes attrapées** :
-  correctif retiré (3 échecs) · borne basse seule normalisée (3) · borne haute
-  seule (3) · normalisation en `Z` (1) · `replace(tzinfo=utc)` au lieu
-  d'`astimezone` (3) · conversion de signe inversé (3) · `_parse_recu_le` cesse
-  d'étiqueter les naïfs (4) · `_now_iso` en heure locale (1) · `_now_iso` en `Z` (1)
-- **Vérifié sur une copie de la base de production** (8 134 relevés) : les trois
-  écritures des mêmes instants rendent 6 points chacune, contre 6/2/2 avant. Et en
-  non-régression, les 24 requêtes que l'interface émet réellement — six périodes
-  prédéfinies et deux plages libres en `Z`, sur les trois sondes — rendent des
-  réponses **octet pour octet identiques** avant et après. Aucun traceback
+- **Corrigé après review adversariale**, deux défauts réels :
+  - **le correctif introduisait un 500** sur une lecture publique et non
+    authentifiée. `0001-01-01T00:00:00+14:00` est de l'ISO 8601 valide dont la
+    normalisation sort de `datetime.min` ; `astimezone` lève une `OverflowError`
+    que le `except ValueError` du parsing ne rattrape pas, et les gardes en amont
+    laissent passer (`to` postérieur à `from`, écart très sous le plafond). Le
+    code d'avant rendait 200 et une liste vide. C'est la classe de défaut que ce
+    projet a déjà traitée deux fois (#36, #44) : le correctif régressait sur son
+    propre standard
+  - **le test d'invariant ne tenait que la moitié de ce qu'il annonçait** : la
+    machine tournant en UTC, une écriture en heure locale *étiquetée* y produit
+    un `+00:00` correct et passait les 71 tests. Or c'est ce test qui porte tout
+    l'argument pour ne pas toucher au `ORDER BY` de `/api/sondes`. Même correction
+    que celle déjà faite sur le test voisin — la fixture existait, elle n'avait
+    pas été appliquée ici
+  - au passage, l'affirmation « la comparaison n'atteint jamais le suffixe » était
+    présentée comme une propriété du format : c'en est une des données (une ligne
+    à microseconde nulle s'écrit sans fraction). Nuancé, et le cas est couvert
+- **Normalisation déplacée au parsing** plutôt qu'à la construction de la requête :
+  le contrôle `end <= start`, le plafond et la requête SQL travaillent alors sur
+  les mêmes instants, et le traitement d'erreur reste groupé avec celui du format
+- **Tests** : 75 backend (10 ajoutés), 54 frontend inchangés. **Onze mutations,
+  toutes attrapées**, dont les deux que la review a mises en défaut : normalisation
+  retirée (6 échecs) · borne basse seule (5) · borne haute seule (5) ·
+  `replace(tzinfo=utc)` au lieu d'`astimezone` (6) · conversion de signe inversé (6)
+  · bornes SQL en `Z` (2) · garde `OverflowError` retiré (2) · `_parse_recu_le`
+  cesse d'étiqueter les naïfs (4) · `_now_iso` naïf (1) · `_now_iso` en heure
+  locale étiquetée (1) · `_now_iso` en `Z` (1). Elles ne se répartissent que sur
+  **six tests distincts** : cinq d'entre elles tombent sur les quatre mêmes — le
+  tableau compte des mutations, pas des propriétés indépendantes
+- **Vérifié sur une copie de la base de production** (8 138 relevés) : les trois
+  écritures des mêmes instants rendent 6 points chacune, contre 6/2/2 avant ; les
+  deux plages extrêmes rendent 400 avec leur message, contre 500 dans la première
+  version. Et en non-régression, les 24 requêtes que l'interface émet réellement —
+  six périodes prédéfinies et deux plages libres en `Z`, sur les trois sondes — plus
+  `/api/sondes`, rendent des réponses **octet pour octet identiques** avant et
+  après. Aucun traceback
 - PLAN.md v1.14 → v1.15 (décision 22). SPEC.md inchangée
 
 ### 2026-08-30 — Issue #43 : `/api/sondes` jetait le timestamp qu'il venait de calculer

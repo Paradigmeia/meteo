@@ -564,7 +564,67 @@ def test_releves_bornes_restent_au_format_des_lignes_en_base(client):
     ) == [11.1]
 
 
-def test_les_lignes_sont_ecrites_en_utc_suffixe_00_00(client):
+def test_releves_ligne_a_la_seconde_pile_est_bien_filtree(client):
+    """Une ligne dont la microseconde est nulle s'écrit sans fraction du tout —
+    `isoformat()` l'omet — et porte donc un `+` là où les autres ont un `.`.
+
+    Il n'y en a aucune dans les 8 138 lignes de production, mais rien ne
+    l'interdit : c'est une propriété des données, pas du format, et le
+    raisonnement sur l'ordre lexicographique doit tenir dans ce cas aussi. La
+    ligne à la seconde pile de la borne basse est incluse, celle de la borne
+    haute exclue — l'ordre est bien chronologique des deux côtés.
+    """
+    slug = _sonde_de_test("test-59-seconde-pile")
+    _insert_releve(slug, 11.1, None, "2026-06-01T10:00:00+00:00")  # borne basse
+    _insert_releve(slug, 33.3, None, "2026-06-01T12:00:00.000001+00:00")  # hors
+
+    assert _temperatures(
+        client, slug, **{"from": "2026-06-01T12:00:00+02:00", "to": "2026-06-01T14:00:00+02:00"}
+    ) == [11.1]
+
+
+@pytest.mark.parametrize(
+    "borne_basse,borne_haute",
+    [
+        # Ramenées en UTC, ces bornes sortent de datetime.min / datetime.max.
+        ("0001-01-01T00:00:00+14:00", "0001-06-01T00:00:00+14:00"),
+        ("9999-12-01T00:00:00-12:00", "9999-12-31T23:59:59-12:00"),
+    ],
+)
+def test_releves_bornes_hors_bornes_representables_rejetees(
+    client, borne_basse, borne_haute
+):
+    """Ces deux plages passent les gardes en amont — `to` est postérieur à
+    `from`, et l'écart est très en dessous du plafond — mais `astimezone` lève
+    une `OverflowError` sur la normalisation. Sans ce garde, l'endpoint répond
+    500 sur une lecture publique et non authentifiée, alors qu'il rendait 200 et
+    une liste vide avant que la normalisation n'existe : c'est la normalisation
+    elle-même qui a introduit le chemin, pas une fragilité préexistante.
+
+    Le message doit être distinct de celui du format invalide : ces dates sont
+    de l'ISO 8601 valide, l'appelant n'a rien mal écrit.
+    """
+    resp = client.get(
+        "/api/releves/salon", params={"from": borne_basse, "to": borne_haute}
+    )
+    assert resp.status_code == 400
+    assert "représentables" in resp.json()["detail"]
+
+
+def test_releves_bornes_extremes_en_utc_restent_acceptees(client):
+    """Le témoin du test précédent : les mêmes années sans décalage ne débordent
+    pas — `astimezone` sur de l'UTC ne calcule rien. Sans lui, rejeter toutes les
+    dates extrêmes passerait pour un correctif.
+    """
+    resp = client.get(
+        "/api/releves/salon",
+        params={"from": "0001-01-01T00:00:00Z", "to": "0001-06-01T00:00:00Z"},
+    )
+    assert resp.status_code == 200
+    assert resp.json() == []
+
+
+def test_les_lignes_sont_ecrites_en_utc_suffixe_00_00(client, fuseau_local_decale):
     """L'invariant dont dépendent les deux comparaisons de chaînes du projet.
 
     La normalisation des bornes suppose que toute ligne s'écrit `+00:00`, et le
@@ -572,6 +632,11 @@ def test_les_lignes_sont_ecrites_en_utc_suffixe_00_00(client):
     en dépend tout autant : c'est lui qui élit le dernier relevé par grandeur.
     Une écriture future en heure locale, ou en `Z`, casserait les deux sans
     qu'aucun autre test ne bouge. Les deux chemins d'écriture sont exercés.
+
+    Sous heure locale décalée, sans quoi le test ne vaut que la moitié de ce
+    qu'il annonce : la machine tournant en UTC, une écriture en heure locale
+    *étiquetée* — `datetime.now().astimezone()` — y produit un `+00:00` correct
+    et passait. Seule la variante naïve, sans fuseau du tout, était attrapée.
     """
     for appel in (
         lambda: client.get(

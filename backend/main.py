@@ -356,10 +356,26 @@ async def get_releves(
         if not from_ or not to:
             raise HTTPException(status_code=400, detail="from et to doivent être fournis ensemble")
         try:
-            start = _parse_recu_le(from_)
-            end = _parse_recu_le(to)
+            # Ramenées en UTC dès le parsing : le plafond ci-dessous et la
+            # requête SQL raisonnent ainsi sur la même fenêtre. SQLite compare
+            # `recu_le` comme du texte, et une borne portant un autre décalage
+            # n'est pas ordonnée comme l'instant qu'elle désigne face aux lignes
+            # en base, toutes écrites en `+00:00` par `_now_iso` (issue #59).
+            start = _parse_recu_le(from_).astimezone(timezone.utc)
+            end = _parse_recu_le(to).astimezone(timezone.utc)
         except ValueError:
             raise HTTPException(status_code=400, detail="Format de date invalide (ISO 8601 attendu)")
+        except OverflowError:
+            # `0001-01-01T00:00:00+14:00` est une date ISO parfaitement valide
+            # dont la normalisation sort de `datetime.min`. Message distinct du
+            # précédent : parler de format induirait l'appelant en erreur, il n'a
+            # rien mal écrit. Sans ce garde, `astimezone` lève et l'endpoint —
+            # public et non authentifié — répond 500.
+            raise HTTPException(
+                status_code=400,
+                detail="Date hors des bornes représentables une fois ramenée en UTC "
+                       "(année 1 à 9999)",
+            )
         if end <= start:
             raise HTTPException(status_code=400, detail="'to' doit être postérieur à 'from'")
         hours = (end - start).total_seconds() / 3600
@@ -379,16 +395,13 @@ async def get_releves(
         start = end - timedelta(hours=PERIOD_HOURS[period])
         hours = PERIOD_HOURS[period]
 
-    # Bornes normalisées en UTC : SQLite compare `recu_le` comme du texte, et
-    # toutes les lignes sont écrites en `+00:00` (`_now_iso`). Le décalage d'une
-    # borne s'écrivant après les chiffres comparés, il ne comptait pour rien — la
-    # requête lisait la fenêtre telle qu'elle s'écrit, décalée d'autant, alors
-    # que le plafond ci-dessus raisonne sur de vrais instants (issue #59).
-    # `isoformat()` rend ici `+00:00` et non `Z`, et c'est ce qui garde les
+    # Les deux bornes sont en UTC à ce stade — normalisées au parsing pour la
+    # plage libre, `datetime.now(timezone.utc)` pour les périodes prédéfinies.
+    # `isoformat()` rend donc `+00:00` et non `Z`, et c'est ce qui garde les
     # bornes comparables aux lignes en base : `Z` s'ordonnerait après le `.` des
-    # microsecondes. Cf. décision 22.
-    since = start.astimezone(timezone.utc).isoformat()
-    until = end.astimezone(timezone.utc).isoformat()
+    # microsecondes et exclurait la seconde de la borne basse. Cf. décision 22.
+    since = start.isoformat()
+    until = end.isoformat()
     async with get_db() as db:
         async with db.execute("SELECT id FROM sondes WHERE slug = ?", (slug,)) as cur:
             row = await cur.fetchone()
