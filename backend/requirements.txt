@@ -1,5 +1,10 @@
-fastapi==0.115.0
-uvicorn[standard]==0.30.0
-python-dotenv==1.0.1
-aiosqlite==0.20.0
-httpx==0.27.0
+# Versions figées, comme dans le reste du projet : le déploiement doit être
+# reproductible. Remontées le 2026-08-30 (issue #38) — le pin fastapi==0.115.0
+# retenait starlette 0.38.6, concernée par CVE-2024-47874 (déni de service sur
+# le parsing multipart), corrigée en 0.40.0. Non exploitable ici, l'application
+# n'exposant aucun endpoint multipart : c'était de l'hygiène de dépendances.
+fastapi==0.141.1
+uvicorn[standard]==0.52.4
+python-dotenv==1.2.3
+aiosqlite==0.22.1
+httpx==0.28.1

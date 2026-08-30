@@ -28,6 +28,27 @@ Légende : 🔲 À faire · 🔄 En cours · ✅ Livré · ⚠️ Dette techniqu
 
 ## Changelog
 
+### 2026-08-30 — Issue #38 : remontée des dépendances Python
+
+- **Cause du pin** : `fastapi==0.115.0` retenait `starlette 0.38.6`, concernée par
+  CVE-2024-47874. **Non exploitable ici** — l'application n'expose aucun endpoint
+  multipart, ses quatre routes prennent des paramètres de query ou un corps JSON.
+  C'était de l'hygiène de dépendances, pas une vulnérabilité
+- **Remontées** : fastapi 0.115.0 → 0.141.1, starlette 0.38.6 → **1.6.0**,
+  uvicorn 0.30.0 → 0.52.4, httpx 0.27.0 → 0.28.1, aiosqlite 0.20.0 → 0.22.1,
+  python-dotenv 1.0.1 → 1.2.3. Versions toujours figées : le déploiement doit
+  rester reproductible
+- **starlette passe une version majeure**, donc les 75 tests ne suffisaient pas à
+  eux seuls. Test de fumée sur une copie de la base de production, pile neuve
+  contre service en place : **5 requêtes sur 5 rendent des réponses octet pour
+  octet identiques**, et les six cas d'erreur durs des issues précédentes sont
+  inchangés — période invalide et plage absurde (#37) en 400, date non
+  normalisable (#59) en 400, clé fausse et clé accentuée (#44) en 401, sonde
+  inconnue en 404. Aucun traceback
+- **Signalé, non traité** : `starlette.testclient` avertit désormais que l'usage
+  d'`httpx` y est déprécié au profit d'`httpx2`. Sans effet aujourd'hui, à
+  regarder à la prochaine remontée
+
 ### 2026-08-30 — Issue #54 : `Permissions-Policy`
 
 - Une ligne d'en-tête dans le bloc `server` HTTPS, à côté des six autres. Ne
