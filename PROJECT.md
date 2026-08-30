@@ -28,6 +28,22 @@ Légende : 🔲 À faire · 🔄 En cours · ✅ Livré · ⚠️ Dette techniqu
 
 ## Changelog
 
+### 2026-08-30 — Issue #54 : `Permissions-Policy`
+
+- Une ligne d'en-tête dans le bloc `server` HTTPS, à côté des six autres. Ne
+  bloque rien d'atteignable aujourd'hui — le navigateur n'accorde jamais ces API
+  sans appel explicite, et il n'y a pas d'iframe : c'est une déclaration
+  d'intention, du même ordre que la CSP un cran plus haut
+- **`interest-cohort` omis** : l'issue le proposait en signalant elle-même que
+  c'est du folklore, FLoC étant abandonné. Une liste qui ne contient que du
+  vivant se relit mieux
+- **Vérifié** : `nginx -t` passe sur le fichier du dépôt, et les 7 en-têtes de
+  sécurité sont servis sur une page, sur `/api/sondes` **et sur une réponse 429**
+  — c'est le `always` qui le permet
+- Réserve consignée : si la v2 veut la géolocalisation du navigateur,
+  `geolocation=()` la bloquerait sans que le message d'erreur pointe vers ici
+- PLAN.md v1.19 → v1.20 (décision 16 complétée). SPEC.md inchangée
+
 ### 2026-08-30 — Issue #60 : limitation de débit sur les lectures, et l'IP qu'on croyait compter
 
 - **Ce qu'on protège** : pas la disponibilité du dashboard, mais les relevés. Le
