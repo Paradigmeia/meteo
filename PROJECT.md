@@ -32,18 +32,32 @@ Légende : 🔲 À faire · 🔄 En cours · ✅ Livré · ⚠️ Dette techniqu
 
 - **Cause** : le webhook Shelly passe la clé en query string (contrainte firmware,
   décision 6), et le trade-off était assumé depuis juin. La mesure a montré qu'il
-  reposait sur une sous-estimation : **14 522 lignes** dans le seul `access.log`
-  courant, deux semaines d'historique en rotation — et surtout un **second canal
-  que personne n'avait identifié**, uvicorn journalisant lui aussi la ligne de
-  requête complète : 107 occurrences en 24 h dans un journal systemd de 3 Go sans
-  rétention configurée
+  reposait sur une sous-estimation : **8 243 lignes** dans `access.log`, un
+  fichier qui n'est **jamais tourné** — `logrotate` est bien configuré en `daily`
+  / `rotate 14` mais aucun timer ne l'exécute sur cette machine, et le fichier est
+  continu depuis le 8 mars (88 Mo, 557 853 lignes). Six mois d'exposition, pas
+  deux semaines. S'y ajoutent deux canaux non identifiés au départ : uvicorn, qui
+  journalise la ligne de requête complète (~107 occurrences en 24 h dans un
+  journal systemd de 3 Go sans rétention), et `error_log`, qui écrit l'URI dans
+  son contexte `request:`/`upstream:` sur tout `[error]` — un 502 suffit
 - **`nginx/maison-temp.conf`** : `location /api/releve/` dédiée, avec un
   `log_format` qui écrit `$uri` au lieu de `$request`. Préfixe plus long que
   `/api/` donc prioritaire ; `/api/releves/` (lecture, au pluriel) ne correspond
   pas et garde sa journalisation complète, n'ayant pas de secret à cacher
 - **`maison-temp.service`** : `--no-access-log` sur uvicorn. Ces lignes faisaient
-  double emploi avec celles de nginx, seul point d'entrée puisque uvicorn n'écoute
-  que sur `127.0.0.1` — aucune information perdue, une copie supprimée
+  double emploi avec celles de nginx pour tout ce qui vient de l'extérieur. Nuance
+  relevée en review : `install.sh` et `update.sh` appellent `127.0.0.1:8042`
+  directement, en contournant nginx — ces requêtes-là ne laissent désormais plus
+  aucune trace. Elles ne portent pas de clé, le compromis reste favorable, mais il
+  n'est pas gratuit
+- **`error_log` du webhook relevé à `crit`** : les lignes `[error]` qui portaient
+  l'URI complète disparaissent pour cette location. On garde le fait (le 502
+  figure dans `access.log`, chemin masqué), on perd le détail de la cause
+- **Bloc port 80** : même format de journalisation, une action configurée en
+  `http://` se faisant rediriger avec sa clé dans la ligne de log
+- **`location ^~`** et non `location` simple : sans le `^~`, une location regex
+  ajoutée plus tard l'emporterait sur le préfixe et ferait disparaître le
+  masquage sans un mot de `nginx -t`
 - **`access_log off` écarté** : on perdrait la trace que le webhook a été appelé,
   utile pour diagnostiquer une sonde muette
 - **Vérifié en bac à sable** sur la configuration exacte : webhook journalisé
@@ -61,6 +75,17 @@ Légende : 🔲 À faire · 🔄 En cours · ✅ Livré · ⚠️ Dette techniqu
 - **Déploiement** : la conf nginx et l'unité systemd ne sont pas déployées par
   `update.sh`. Après merge : `git pull`, puis copie de la conf + `nginx -t` +
   `reload`, et `daemon-reload` + `restart` pour le service
+- **Corrections après review adversariale** (PR #56) : trois canaux d'écriture
+  restaient ouverts — `error_log`, le bloc port 80, et une location regex future
+  qui aurait silencieusement repris la main. Tous traités et vérifiés backend
+  arrêté, le cas qui les déclenche. Deux erreurs de ma part dans la première
+  version : le chiffre de 14 522 venait d'une commande dont la branche `sudo`
+  avait échoué en silence, laissant compter un motif plus large qui incluait les
+  lectures au pluriel — le vrai compte est 8 243 ; et la procédure de rotation
+  pointait `/home/debian/meteo/.env` au lieu de `backend/.env`, ce qui aurait fait
+  échouer toutes les écritures en 401 sans message explicite. Un `.env` orphelin
+  en 644 portant une clé différente traîne d'ailleurs à ce chemin, sa suppression
+  est ajoutée à la procédure
 - PLAN.md v1.9 → v1.10 (décision 17, et décision 6 annotée : son « acceptable »
   est révisé). SPEC.md inchangée
 
