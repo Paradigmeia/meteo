@@ -315,6 +315,12 @@ def _bucket_seconds_for_range(hours: float) -> int | None:
 
 
 def _aggregate(rows, bucket_seconds):
+    """Agrège en Python. Chemin de repli de `_aggregate_sql` — cf. sa docstring.
+
+    Reste la référence de comportement : c'est cette fonction que le test
+    différentiel compare à la requête SQL, et elle sert encore pour de vrai
+    quand SQLite ne sait pas dater une ligne.
+    """
     buckets = defaultdict(lambda: {"temps": [], "hums": []})
     for temp, hum, recu_le_str in rows:
         dt = _parse_recu_le(recu_le_str)
@@ -338,6 +344,93 @@ def _aggregate(rows, bucket_seconds):
             recu_le=datetime.fromtimestamp(key, tz=timezone.utc),
         ))
     return result
+
+
+# Pendant SQL de `_finite_or_none` : une valeur non finie contaminerait la
+# moyenne de tout le bucket, on l'écarte de l'accumulation comme une mesure
+# absente (issue #36). `9e999` est la façon d'écrire l'infini en SQLite, donc
+# `ABS(x) < 9e999` est faux pour ±inf et NULL pour NULL — deux cas qu'AVG et
+# COUNT ignorent l'un comme l'autre. NaN n'a pas besoin d'être traité : SQLite
+# ne sait pas le stocker et le relit en NULL (vérifié, cf. test dédié).
+_FINI = "CASE WHEN ABS({c}) < 9e999 THEN {c} END"
+
+# `FLOOR(x / bucket)` et non `x / bucket` : la division entière de SQLite
+# tronque vers zéro, celle de Python (`//`) plancherise. Les deux coïncident sur
+# des horodatages postérieurs à 1970 — les seuls que cette base contienne — mais
+# pas avant, et reproduire `_aggregate` demande le plancher. Le paramètre est
+# passé deux fois : en flottant pour forcer une division flottante, en entier
+# pour remultiplier sans reperdre le type.
+_AGGREGATE_SQL = f"""
+    SELECT CAST(FLOOR(unixepoch(recu_le) / ?) AS INTEGER) * ? AS bucket,
+           AVG({_FINI.format(c="temperature")}),
+           AVG({_FINI.format(c="humidite")}),
+           COUNT({_FINI.format(c="temperature")})
+         + COUNT({_FINI.format(c="humidite")}) AS mesures
+      FROM releves
+     WHERE sonde_id = ? AND recu_le >= ? AND recu_le <= ?
+  GROUP BY bucket
+    HAVING mesures > 0
+  ORDER BY bucket ASC
+"""
+
+
+async def _aggregate_sql(db, sonde_id, since, until, bucket_seconds):
+    """Agrège en SQL. Renvoie `None` s'il faut se replier sur `_aggregate`.
+
+    Raison d'être : `_aggregate` parcourait les lignes **dans le thread de la
+    boucle d'événements**, sur un service mono-worker. Pendant ce temps la
+    boucle ne traite rien d'autre, y compris les écritures du webhook Shelly —
+    qui n'émet qu'une fois et ne réessaie pas (décision 6), donc un relevé
+    perdu l'est définitivement (issue #67). Ici le parcours a lieu dans le
+    thread d'aiosqlite, et SQLite relâche le GIL pendant `sqlite3_step` : le
+    coût sort réellement de la boucle, ce qu'un `run_in_threadpool` autour du
+    Python pur n'aurait pas fait.
+
+    `HAVING mesures > 0` reproduit une propriété discrète de `_aggregate` : un
+    bucket dont toutes les lignes ont leurs deux grandeurs absentes ou non
+    finies n'y crée aucune entrée, parce que le `defaultdict` n'est touché que
+    sous les deux `if`. Il ne doit donc pas apparaître ici non plus.
+
+    L'arrondi reste en Python : `ROUND()` de SQLite arrondit à l'écart de zéro
+    quand `round()` de Python arrondit au pair, et les deux divergent
+    exactement sur les valeurs que produit une moyenne — `round(20.25, 1)` vaut
+    20,2 en Python et 20,3 en SQL. Il n'y a au plus que quelques centaines de
+    buckets, cet arrondi-là ne coûte rien à la boucle.
+
+    Le repli couvre les lignes que **SQLite** ne sait pas dater alors que
+    `datetime.fromisoformat` les accepte — un décalage sans deux-points
+    (`2026-08-31T10:23:45+0000`, ce que produit `strftime('%z')`), une virgule
+    décimale, un `t` minuscule. `unixepoch` rend NULL, ces lignes se retrouvent
+    dans un groupe de clé NULL — que `ORDER BY` place en tête — et `_aggregate`
+    reprend la main plutôt que de laisser passer un résultat amputé. Aucune
+    ligne de ce genre ne peut naître de l'application : `_now_iso` écrit
+    toujours le même format. C'est un garde-fou contre une écriture directe en
+    base, sur un endpoint public et non authentifié.
+
+    Écart connu et assumé : SQLite date à la **milliseconde** et arrondit au
+    plus proche, donc une sous-seconde ≥ 0,9995 s est lue comme la seconde
+    suivante. Quand cette seconde est une frontière de bucket, la ligne bascule
+    dans le bucket voisin — c'est la seule divergence qui subsiste face à
+    `_aggregate`, et elle tient dans les 500 dernières microsecondes précédant
+    une frontière. Sur les 8 188 relevés de production, une seule ligne porte
+    une telle sous-seconde et aucune ne tombe sur une frontière. Cf.
+    `test_agregation_sql_ecart_connu_sous_la_milliseconde`.
+    """
+    async with db.execute(
+        _AGGREGATE_SQL,
+        (float(bucket_seconds), bucket_seconds, sonde_id, since, until),
+    ) as cur:
+        rows = await cur.fetchall()
+    if rows and rows[0][0] is None:
+        return None
+    return [
+        ReleverOut(
+            temperature=round(avg_temp, 1) if avg_temp is not None else None,
+            humidite=round(avg_hum, 1) if avg_hum is not None else None,
+            recu_le=datetime.fromtimestamp(bucket, tz=timezone.utc),
+        )
+        for bucket, avg_temp, avg_hum, _ in rows
+    ]
 
 
 @app.get("/api/releves/{slug}", response_model=list[ReleverOut])
@@ -408,6 +501,11 @@ async def get_releves(
         if row is None:
             raise HTTPException(status_code=404, detail=f"Sonde '{slug}' inconnue")
         sonde_id = row[0]
+        bucket = _bucket_seconds_for_range(hours)
+        if bucket:
+            agrege = await _aggregate_sql(db, sonde_id, since, until, bucket)
+            if agrege is not None:
+                return agrege
         async with db.execute(
             """SELECT temperature, humidite, recu_le FROM releves
                WHERE sonde_id = ? AND recu_le >= ? AND recu_le <= ?
@@ -415,7 +513,6 @@ async def get_releves(
             (sonde_id, since, until),
         ) as cur:
             rows = await cur.fetchall()
-    bucket = _bucket_seconds_for_range(hours)
     if bucket:
         return _aggregate(rows, bucket)
     return [

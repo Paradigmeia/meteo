@@ -2,7 +2,7 @@ import os
 import sqlite3
 import tempfile
 import time
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from fastapi.testclient import TestClient
@@ -16,7 +16,7 @@ config.API_KEY = "test-key"
 _tmpdir = tempfile.TemporaryDirectory()
 config.DATABASE_PATH = os.path.join(_tmpdir.name, "test.db")
 
-from main import _finite_or_none, _parse_shelly_value, app
+from main import _aggregate, _finite_or_none, _parse_shelly_value, app
 from models import (
     HUM_ACCEPT_MAX,
     HUM_ACCEPT_MIN,
@@ -989,3 +989,282 @@ def test_meteo_non_finite_upstream_is_neutralised(client, monkeypatch):
     finally:
         main._meteo_cache["data"] = None
         main._meteo_cache["expires_at"] = None
+
+
+
+
+# --- Agrégation en SQL (issue #67) ------------------------------------------
+#
+# `_aggregate` parcourait les lignes dans le thread de la boucle d'événements,
+# sur un service mono-worker : pendant ce temps la boucle ne traitait rien
+# d'autre, y compris les écritures du webhook Shelly, qui n'émet qu'une fois et
+# ne réessaie pas. L'agrégation est passée en SQL ; ces tests vérifient qu'elle
+# rend exactement ce que rendait le Python.
+#
+# La base de test est partagée par le module : ces tests vivent tous sur
+# `exterieur`, dont aucun autre test ne se sert, et chacun ouvre sa propre
+# fenêtre — le test différentiel occupe 2027, les cas particuliers un mois de
+# 2028 chacun. `_agg_fenetre_vierge` refuse de laisser une pollution passer
+# pour un résultat.
+
+_AGG_SLUG = "exterieur"
+
+
+def _agg_fenetre_vierge(debut, fin):
+    """Garde-fou : la fenêtre doit n'appartenir qu'au test qui l'ouvre."""
+    conn = sqlite3.connect(config.DATABASE_PATH)
+    n = conn.execute(
+        """SELECT COUNT(*) FROM releves
+           WHERE sonde_id = (SELECT id FROM sondes WHERE slug = ?)
+             AND recu_le >= ? AND recu_le <= ?""",
+        (_AGG_SLUG, debut, fin),
+    ).fetchone()[0]
+    conn.close()
+    assert n == 0, f"fenêtre déjà peuplée ({n} lignes) : les tests se marchent dessus"
+
+
+def _agg_reference(debut, fin, bucket_seconds):
+    """Ce que l'ancienne implémentation aurait rendu, sur les mêmes lignes."""
+    conn = sqlite3.connect(config.DATABASE_PATH)
+    rows = conn.execute(
+        """SELECT temperature, humidite, recu_le FROM releves
+           WHERE sonde_id = (SELECT id FROM sondes WHERE slug = ?)
+             AND recu_le >= ? AND recu_le <= ?
+           ORDER BY recu_le ASC""",
+        (_AGG_SLUG, debut, fin),
+    ).fetchall()
+    conn.close()
+    return [
+        (r.temperature, r.humidite, r.recu_le) for r in _aggregate(rows, bucket_seconds)
+    ]
+
+
+def _agg_endpoint(client, debut, fin):
+    resp = client.get("/api/releves/" + _AGG_SLUG, params={"from": debut, "to": fin})
+    assert resp.status_code == 200, resp.text
+    return [(r["temperature"], r["humidite"], _dt(r["recu_le"])) for r in resp.json()]
+
+
+def test_agregation_sql_identique_au_python(client):
+    """Le test central de la bascule : sur un jeu volontairement hostile, la
+    requête SQL doit rendre exactement ce que rendait `_aggregate`.
+
+    Le jeu mélange ce qui distingue les deux implémentations : grandeurs
+    absentes, valeurs non finies (issue #36), lignes collées aux frontières de
+    bucket, sous-secondes, et des trous assez larges pour laisser des buckets
+    entièrement vides. Les quatre tailles de bucket sont couvertes en variant
+    l'étendue de la plage.
+    """
+    import random
+
+    base = datetime(2027, 1, 4, tzinfo=timezone.utc)  # aligné sur un bucket de 3 j
+    _agg_fenetre_vierge(base.isoformat(), (base + timedelta(days=210)).isoformat())
+
+    random.seed(67)
+    instants = set()
+    for _ in range(600):
+        # des grappes, des trous, et des instants collés aux frontières
+        decalage = random.choice(
+            [random.randrange(0, 86400 * 200), random.randrange(0, 3600)]
+        )
+        cale = random.choice([0, -1, 1, 10799, 10800, 86399, 86400])
+        instants.add(base + timedelta(seconds=decalage + cale))
+    for t in sorted(instants):
+        r = random.random()
+        temp = None if r < 0.30 else (float("inf") if r < 0.34 else round(random.uniform(-8, 38), 1))
+        r = random.random()
+        hum = None if r < 0.30 else (float("-inf") if r < 0.34 else round(random.uniform(15, 98), 1))
+        _insert_releve(
+            _AGG_SLUG,
+            temp,
+            hum,
+            t.replace(microsecond=random.choice([0, 1, 123456, 500000])).isoformat(),
+        )
+
+    debut = base.isoformat()
+    for jours, bucket in [(5, 10800), (25, 43200), (85, 86400), (200, 259200)]:
+        fin = (base + timedelta(days=jours)).isoformat()
+        attendu = _agg_reference(debut, fin, bucket)
+        assert attendu, f"la plage de {jours} j doit contenir des buckets"
+        assert _agg_endpoint(client, debut, fin) == attendu, (
+            f"divergence sur la plage de {jours} jours (bucket de {bucket} s)"
+        )
+
+
+def test_agregation_sql_ecarte_les_valeurs_non_finies(client):
+    """±inf est écarté de la moyenne du bucket, pas seulement de sa propre ligne.
+
+    C'est le pendant SQL de `_finite_or_none` (issue #36) : `ABS(x) < 9e999` est
+    faux pour l'infini, donc AVG et COUNT l'ignorent. Sans ce filtre la moyenne
+    du bucket entier vaudrait inf, et la sérialisation de toute la réponse
+    échouerait — pas seulement celle de la ligne fautive.
+    """
+    debut, fin = "2028-01-01T00:00:00+00:00", "2028-01-06T00:00:00+00:00"
+    _agg_fenetre_vierge(debut, fin)
+    _insert_releve(_AGG_SLUG, 20.0, 50.0, "2028-01-01T00:00:00+00:00")
+    _insert_releve(_AGG_SLUG, float("inf"), float("-inf"), "2028-01-01T01:00:00+00:00")
+    _insert_releve(_AGG_SLUG, 22.0, 60.0, "2028-01-01T02:00:00+00:00")
+    data = _agg_endpoint(client, debut, fin)
+    assert data[0][:2] == (21.0, 55.0), "moyenne des seules lignes finies"
+    assert data == _agg_reference(debut, fin, 43200)
+
+
+def test_sqlite_relit_un_nan_en_null(client):
+    """Le filtre SQL ne teste pas NaN, et c'est délibéré : SQLite ne sait pas le
+    stocker et le relit en NULL, que AVG ignore déjà.
+
+    Ce test épingle l'hypothèse plutôt que de la laisser implicite : c'est ici
+    qu'on s'apercevrait qu'une version de SQLite s'est mise à conserver NaN.
+    """
+    _insert_releve(_AGG_SLUG, float("nan"), None, "2028-02-01T00:00:00+00:00")
+    conn = sqlite3.connect(config.DATABASE_PATH)
+    row = conn.execute(
+        "SELECT temperature, typeof(temperature) FROM releves WHERE recu_le = ?",
+        ("2028-02-01T00:00:00+00:00",),
+    ).fetchone()
+    conn.close()
+    assert row == (None, "null")
+
+
+def test_agregation_sql_n_invente_pas_de_bucket_vide(client):
+    """Un bucket dont toutes les lignes ont leurs deux grandeurs absentes
+    n'apparaît pas.
+
+    Propriété discrète de `_aggregate`, dont le `defaultdict` n'était touché que
+    sous ses deux `if` : un bucket entièrement muet n'y créait aucune entrée.
+    C'est le rôle de `HAVING mesures > 0`.
+    """
+    debut, fin = "2028-03-01T00:00:00+00:00", "2028-03-26T00:00:00+00:00"
+    _agg_fenetre_vierge(debut, fin)
+    _insert_releve(_AGG_SLUG, 18.0, None, "2028-03-01T00:00:00+00:00")
+    _insert_releve(_AGG_SLUG, None, None, "2028-03-02T00:00:00+00:00")  # bucket muet
+    _insert_releve(_AGG_SLUG, None, None, "2028-03-02T06:00:00+00:00")
+    _insert_releve(_AGG_SLUG, 19.0, None, "2028-03-03T00:00:00+00:00")
+    data = _agg_endpoint(client, debut, fin)
+    jours = {t.date().isoformat() for _, _, t in data}
+    assert {"2028-03-01", "2028-03-03"} <= jours
+    assert "2028-03-02" not in jours, "un bucket sans aucune mesure ne doit pas être émis"
+    assert data == _agg_reference(debut, fin, 43200)
+
+
+def test_agregation_sql_garde_l_arrondi_de_python(client):
+    """`ROUND()` de SQLite arrondit à l'écart de zéro, `round()` de Python au pair.
+
+    Les deux divergent exactement sur ce que produit une moyenne : 20,2 et 20,3
+    donnent 20,25, que Python rend en 20,2 et SQLite en 20,3. L'arrondi est donc
+    resté en Python — ce test tomberait si on le poussait dans la requête.
+    """
+    debut, fin = "2028-04-01T00:00:00+00:00", "2028-04-06T00:00:00+00:00"
+    _agg_fenetre_vierge(debut, fin)
+    _insert_releve(_AGG_SLUG, 20.2, None, "2028-04-01T00:00:00+00:00")
+    _insert_releve(_AGG_SLUG, 20.3, None, "2028-04-01T01:00:00+00:00")
+    assert _agg_endpoint(client, debut, fin)[0][0] == 20.2
+
+
+def test_agregation_sql_frontiere_de_bucket(client):
+    """La seconde exacte d'une frontière ouvre le bucket suivant, celle d'avant
+    ferme le précédent.
+
+    Vérifie le plancher : la division entière de SQLite tronque vers zéro là où
+    `//` de Python plancherise, et c'est `FLOOR()` qui les réconcilie.
+    """
+    frontiere = datetime(2028, 5, 1, tzinfo=timezone.utc)
+    assert int(frontiere.timestamp()) % 43200 == 0, "la date choisie doit être une frontière"
+    debut, fin = "2028-04-25T00:00:00+00:00", "2028-05-20T00:00:00+00:00"
+    _agg_fenetre_vierge(debut, fin)
+    _insert_releve(_AGG_SLUG, 10.0, None, (frontiere - timedelta(seconds=1)).isoformat())
+    _insert_releve(_AGG_SLUG, 30.0, None, frontiere.isoformat())
+    par_bucket = {t: temp for temp, _, t in _agg_endpoint(client, debut, fin)}
+    assert par_bucket[frontiere - timedelta(seconds=43200)] == 10.0
+    assert par_bucket[frontiere] == 30.0
+
+
+def test_agregation_se_replie_quand_sqlite_ne_sait_pas_dater(client):
+    """Une ligne que `datetime.fromisoformat` accepte mais que SQLite refuse ne
+    doit pas amputer le résultat.
+
+    `2028-06-02T00:00:00+0000` en est une : décalage sans deux-points, la forme
+    que produit `strftime('%z')` en Python et qu'on trouve dans un import de
+    données historiques. `unixepoch` rend NULL, la ligne se retrouve dans un
+    groupe de clé NULL — que `ORDER BY` place en tête — et `_aggregate` reprend
+    la main. Elle reste dans la plage parce que le filtre `recu_le >= ? AND <= ?`
+    est textuel : c'est ce qui rend le cas atteignable, là où une forme compacte
+    `20280602T000000` serait de toute façon écartée par ce filtre.
+
+    Aucune écriture de l'application ne produit ce format — `_now_iso` écrit
+    toujours le même — mais l'endpoint est public et non authentifié, et une
+    écriture directe en base ne doit pas le faire répondre à côté.
+    """
+    debut, fin = "2028-06-01T00:00:00+00:00", "2028-06-26T00:00:00+00:00"
+    _agg_fenetre_vierge(debut, fin)
+    illisible = "2028-06-02T00:00:00+0000"
+    assert debut <= illisible <= fin, "la ligne doit tomber dans la plage textuelle"
+
+    conn = sqlite3.connect(config.DATABASE_PATH)
+    assert conn.execute("SELECT unixepoch(?)", (illisible,)).fetchone()[0] is None
+    conn.close()
+    assert datetime.fromisoformat(illisible), "Python, lui, sait la dater"
+
+    _insert_releve(_AGG_SLUG, 15.0, None, illisible)
+    _insert_releve(_AGG_SLUG, 25.0, None, "2028-06-03T00:00:00+00:00")
+    data = _agg_endpoint(client, debut, fin)
+    assert 15.0 in [t for t, _, _ in data], "la ligne datée par Python seul reste lue"
+    assert data == _agg_reference(debut, fin, 43200)
+
+
+def test_agregation_sql_horodatage_anterieur_a_1970(client):
+    """Le plancher, dans le seul cas où il se distingue de la troncature.
+
+    `//` de Python plancherise, la division entière de SQLite tronque vers zéro :
+    les deux ne coïncident que sur des horodatages postérieurs à 1970 — les
+    seuls que cette base contienne, `_now_iso` étant son unique auteur. C'est
+    `FLOOR()` qui les réconcilie ailleurs, et ce test est ce qui le prouve :
+    sans lui, `unixepoch(recu_le) / 10800` placerait cette ligne trois heures
+    plus tard.
+    """
+    debut, fin = "1969-12-30T00:00:00+00:00", "1970-01-01T00:00:00+00:00"
+    _agg_fenetre_vierge(debut, fin)
+    instant = datetime(1969, 12, 31, 19, tzinfo=timezone.utc)
+    assert instant.timestamp() < 0 and instant.timestamp() % 10800 != 0
+    _insert_releve(_AGG_SLUG, 5.0, None, instant.isoformat())
+    data = _agg_endpoint(client, debut, fin)
+    assert [t for _, _, t in data] == [datetime(1969, 12, 31, 18, tzinfo=timezone.utc)]
+    assert data == _agg_reference(debut, fin, 10800)
+
+
+def test_agregation_sql_ecart_connu_sous_la_milliseconde(client):
+    """Épingle la seule différence connue entre les deux implémentations.
+
+    SQLite date à la **milliseconde** et arrondit au plus proche : une
+    sous-seconde ≥ 0,9995 s est lue comme la seconde suivante. Quand cette
+    seconde-là est une frontière de bucket, la ligne change de bucket — c'est le
+    seul écart qui subsiste, et il est borné aux **500 dernières microsecondes**
+    de la seconde qui précède une frontière (vérifié microseconde par
+    microseconde : 999 499 est encore du bon côté, 999 500 bascule).
+
+    Assumé plutôt que corrigé : sur les 8 188 relevés de la base de production,
+    **une** ligne porte une sous-seconde ≥ 0,9995 et **aucune** ne tombe sur une
+    frontière. À 79 relevés/jour et pour le plus petit bucket (3 h), l'espérance
+    est d'environ une ligne concernée tous les 750 000 ans, et la conséquence
+    serait qu'un relevé compte dans le bucket voisin. `_aggregate` reste la
+    référence : ce test dit ce que fait le code livré, pas ce qui serait idéal.
+    """
+    debut, fin = "2028-07-25T00:00:00+00:00", "2028-08-19T00:00:00+00:00"
+    _agg_fenetre_vierge(debut, fin)
+    frontiere = datetime(2028, 8, 1, tzinfo=timezone.utc)
+    assert int(frontiere.timestamp()) % 43200 == 0
+    juste_avant = frontiere - timedelta(microseconds=1)
+    _insert_releve(_AGG_SLUG, 7.0, None, juste_avant.isoformat())
+
+    obtenu = _agg_endpoint(client, debut, fin)
+    reference = _agg_reference(debut, fin, 43200)
+    assert [t for _, _, t in reference] == [frontiere - timedelta(seconds=43200)], (
+        "Python place la ligne dans le bucket qui précède, elle lui appartient"
+    )
+    assert [t for _, _, t in obtenu] == [frontiere], (
+        "SQL l'arrondit à la frontière et la place dans le bucket suivant"
+    )
+    assert obtenu != reference, (
+        "si cet écart disparaît, la milliseconde n'est plus une limite : "
+        "retirer ce test et la réserve qui l'accompagne dans PLAN.md"
+    )

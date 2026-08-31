@@ -28,6 +28,59 @@ Légende : 🔲 À faire · 🔄 En cours · ✅ Livré · ⚠️ Dette techniqu
 
 ## Changelog
 
+### 2026-08-31 — Issue #67 : l'agrégation sort de la boucle d'événements
+
+- **Ce qu'on protège, ce sont les relevés.** Le Shelly n'émet qu'une fois et ne
+  réessaie pas : une boucle d'événements occupée sur un service mono-worker,
+  ce sont des mesures perdues. `_aggregate` parcourait les lignes dans le thread
+  de cette boucle ; c'est maintenant un `GROUP BY` sur un bucket calculé, exécuté
+  par SQLite dans le thread d'aiosqlite, GIL relâché
+- **Le blocage était trois fois pire que ce que l'issue annonçait.** Elle
+  chronométrait `_aggregate` seule (6,6 ms). Mesuré avec une tâche de battement
+  à 1 ms, ce que la boucle subit vraiment est de **19,8 ms** aujourd'hui et de
+  **80,9 ms au palier de 2027** — la différence, c'est `fetchall`, qui construit
+  5 640 puis 28 835 tuples GIL tenu. Après : **1,15 ms** et **1,79 ms**
+- **Le webhook pendant une inondation de lectures au plafond**, service réel sur
+  uvicorn, base au palier : latence médiane **1 535 ms avant, 58 ms après**
+  (max 2 039 → 63 ms). Le débit de lectures double au passage
+- **Trois propriétés devaient survivre au passage en SQL** : les valeurs non
+  finies écartées de la moyenne du bucket entier (#36), les buckets entièrement
+  muets qui ne doivent pas apparaître, et le plancher de la division — SQLite
+  tronque vers zéro là où `//` plancherise. **L'arrondi est resté en Python** :
+  `ROUND()` de SQLite arrondit à l'écart de zéro, et les deux divergent
+  exactement sur ce que produit une moyenne (20,25 → 20,2 ou 20,3)
+- **Repli sur `_aggregate` quand SQLite ne sait pas dater une ligne.** Son
+  parseur est plus strict que `datetime.fromisoformat` — il refuse `+0000` sans
+  deux-points, une virgule décimale, un `t` minuscule. Aucune écriture de
+  l'application ne produit ces formes, mais l'endpoint est public et non
+  authentifié, et un import direct en base ne doit pas le faire répondre à côté
+- **Un écart connu subsiste, assumé et épinglé par un test** : SQLite date à la
+  milliseconde et arrondit, donc une sous-seconde ≥ 0,9995 s tombant pile sur
+  une frontière de bucket fait basculer la ligne. Sur les 8 188 relevés de
+  production, une seule ligne porte une telle sous-seconde et aucune n'est sur
+  une frontière — espérance d'environ un cas tous les 750 000 ans
+- **Vérifié** : 40 requêtes sur une copie de la base de production (4 sondes ×
+  6 périodes × 4 plages libres) servies par les deux implémentations côte à
+  côte, **40 réponses identiques octet pour octet** ; fuzz différentiel
+  **0 divergence sur 15 000 jeux** à la seconde entière ; **86 tests backend**
+  (9 ajoutés), 54 frontend inchangés. Les tests ajoutés résistent à la mutation :
+  retirer le filtre de finitude, le `HAVING`, le `FLOOR`, le repli, ou pousser
+  l'arrondi en SQL — chacune est détectée
+- **Mon premier harnais de fuzz était faux** et donnait 17 % de divergences : la
+  table en mémoire n'avait pas d'index, donc SQLite lisait en ordre de rowid
+  quand Python recevait les lignes triées par `recu_le`. Deux ordres de sommation
+  flottante, donc des moyennes qui basculent d'un dixième à l'arrondi. C'est le
+  harnais qui était en cause, pas le code
+- **Signalé, non traité** : retirer l'`ORDER BY bucket ASC` ne fait tomber aucun
+  test — le `GROUP BY` de SQLite passe par un B-tree temporaire qui rend déjà les
+  groupes triés. Coïncidence d'implémentation, pas garantie
+- **PLAN.md v1.20 → v1.21** (décision 24 ; déclencheur de la décision 23 marqué
+  atteint et traité ; §2 Dépendances resynchronisé avec `requirements.txt`, resté
+  sur les versions d'avant #38, et plancher SQLite ≥ 3.38 consigné). SPEC.md
+  inchangée
+- **Non déployé** : reste à faire (`git pull` dans `/home/debian/meteo`, puis
+  `systemctl restart maison-temp`)
+
 ### 2026-08-30 — Issue #38 : remontée des dépendances Python
 
 - **Cause du pin** : `fastapi==0.115.0` retenait `starlette 0.38.6`, concernée par

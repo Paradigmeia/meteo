@@ -1,7 +1,7 @@
 # PLAN.md — maison-temp
 
-**Version** : 1.20
-**Date** : 2026-08-30
+**Version** : 1.21
+**Date** : 2026-08-31
 **Référence** : SPEC.md v1.9
 
 ---
@@ -66,13 +66,25 @@ maison-temp/
 
 ## 2. Dépendances
 
-**Backend (Python)**
+**Backend (Python)** — cf. `backend/requirements.txt`, qui fait foi
 ```
-fastapi==0.115.0
-uvicorn[standard]==0.30.0
-python-dotenv==1.0.1
-aiosqlite==0.20.0
+fastapi==0.141.1
+starlette==1.6.0
+uvicorn[standard]==0.52.4
+python-dotenv==1.2.3
+aiosqlite==0.22.1
+httpx==0.28.1
 ```
+Ce bloc était resté sur les versions d'avant la remontée de l'issue #38 ; il est
+resynchronisé ici.
+
+**SQLite** : la bibliothèque du système, pas un paquet Python — `aiosqlite`
+n'est qu'une enveloppe autour du module `sqlite3` de la bibliothèque standard.
+**Version minimale 3.38**, pour la fonction `unixepoch()` sur laquelle repose
+l'agrégation (décision 24) ; `FLOOR()`, du même calcul, existe depuis la 3.35.
+Le serveur est en 3.40.1 (Debian 12). Une version antérieure ferait échouer
+toute lecture agrégée — et ferait tomber les tests de `test_main.py`, qui est
+le premier endroit où on s'en apercevrait.
 
 **Frontend (Node)**
 ```json
@@ -907,7 +919,10 @@ Procédure, à faire dans cet ordre — le service refuse toute écriture entre 
   cinq ans, c'est en réalité l'échéance d'un historique d'un an à la cadence
   actuelle. Déclencheur retenu : **agrégation au-delà de 10 ms sur la requête au
   plafond**, à traiter en SQL (`GROUP BY` sur un bucket calculé) plutôt qu'avec
-  `run_in_threadpool`, qui déplacerait le calcul sans le sortir du GIL
+  `run_in_threadpool`, qui déplacerait le calcul sans le sortir du GIL.
+  **Traité le 2026-08-31 par la décision 24**, avant l'échéance — et la mesure
+  y montre que ce tableau sous-estimait le blocage d'un facteur trois, parce
+  qu'il chronométrait `_aggregate` seule et non ce que la boucle subit
 - **Ce que la limitation ne protège pas.** La colonne « req/s pour saturer »
   ci-dessus vaut `1/T` : c'est ce qu'il faut pour occuper **100 %** d'une boucle,
   et ce n'est pas comparable à une limite qui est **par IP**. Au palier de 2027,
@@ -950,6 +965,88 @@ Procédure, à faire dans cet ordre — le service refuse toute écriture entre 
   demande de l'attention, et le cache météo en mémoire serait dupliqué par
   worker), et `limit_conn`, qui répond à l'épuisement de connexions et non au
   débit — hors sujet de cette issue
+
+### Décision 24 (2026-08-31)
+
+**Agrégation des lectures en SQL plutôt qu'en Python** (issue #67, déclencheur
+posé par la décision 23).
+
+- **Ce qu'on protège reste les relevés, pas la disponibilité.** Le Shelly n'émet
+  qu'une fois et ne réessaie pas (décision 6) : une boucle d'événements occupée,
+  ce sont des mesures définitivement perdues. Le service tourne sur **un seul
+  worker**, et `_aggregate` parcourait les lignes dans le thread de cette boucle
+- **`GROUP BY` sur un bucket calculé**, et non `run_in_threadpool` autour de
+  `_aggregate` : la fonction est du Python pur et garde le GIL, le calcul aurait
+  changé de thread sans sortir de la boucle. `aiosqlite` exécute déjà la requête
+  dans un thread séparé et le module `sqlite3` relâche le GIL pendant
+  `sqlite3_step` — le coût sort réellement
+- **Le blocage était trois fois pire que ce que la décision 23 annonçait.** Elle
+  chronométrait `_aggregate` seule (6,6 ms) ; ce que la boucle subit, mesuré
+  avec une tâche de battement à 1 ms, est de **19,8 ms** aujourd'hui et de
+  **80,9 ms au palier de 2027**. La différence, c'est `fetchall` : construire
+  5 640 puis 28 835 tuples de lignes se fait GIL tenu, entre deux `sqlite3_step`.
+  Agréger en SQL supprime aussi cette part, puisqu'il ne remonte plus que
+  quelques dizaines de buckets. Après : **1,15 ms** et **1,79 ms**
+- **Trois choses devaient être portées en SQL sans être perdues** :
+  - les valeurs non finies, écartées de la moyenne du bucket entier et pas
+    seulement de leur ligne (issue #36) → `CASE WHEN ABS(x) < 9e999 THEN x END`,
+    `9e999` étant l'écriture de l'infini en SQLite. NaN n'a pas besoin d'être
+    traité : SQLite ne sait pas le stocker et le relit en NULL (décision 13,
+    « Note SQLite »), ce qu'un test épingle désormais explicitement ;
+  - les buckets muets — un bucket dont toutes les lignes ont leurs deux
+    grandeurs absentes ne créait aucune entrée, le `defaultdict` n'étant touché
+    que sous les deux `if` → `HAVING mesures > 0` ;
+  - le plancher. `//` de Python plancherise, la division entière de SQLite
+    tronque vers zéro → `FLOOR()`. Sans objet sur les données réelles, toutes
+    postérieures à 1970, mais l'expression doit dire ce qu'elle veut dire
+- **L'arrondi est resté en Python, délibérément.** `ROUND()` de SQLite arrondit
+  à l'écart de zéro, `round()` de Python arrondit au pair, et les deux divergent
+  précisément sur ce que produit une moyenne : 20,2 et 20,3 donnent 20,25, rendu
+  20,2 par l'un et 20,3 par l'autre. Il n'y a que quelques centaines de buckets,
+  cet arrondi-là ne coûte rien à la boucle
+- **Repli sur `_aggregate` quand SQLite ne sait pas dater une ligne.** Le
+  parseur de dates de SQLite est plus strict que `datetime.fromisoformat` : il
+  refuse un décalage sans deux-points (`+0000`, ce que produit `strftime('%z')`),
+  une virgule décimale, un `t` minuscule. `unixepoch` rend alors NULL, ces
+  lignes forment un groupe de clé NULL que `ORDER BY` place en tête, et
+  `_aggregate` reprend la main. Aucune écriture de l'application ne produit ces
+  formes — `_now_iso` écrit toujours la même — mais l'endpoint est public et non
+  authentifié, et un import direct en base ne doit pas le faire répondre à côté.
+  `_aggregate` reste donc du code vivant, et reste la référence de comportement
+- **Un écart connu subsiste, et il est assumé.** SQLite date à la
+  **milliseconde** et arrondit au plus proche : une sous-seconde ≥ 0,9995 s est
+  lue comme la seconde suivante, et si cette seconde est une frontière de
+  bucket, la ligne bascule dans le bucket voisin. Borné aux **500 dernières
+  microsecondes** avant une frontière (vérifié microseconde par microseconde :
+  999 499 est du bon côté, 999 500 bascule). Sur les 8 188 relevés de
+  production, **une** ligne porte une telle sous-seconde et **aucune** ne tombe
+  sur une frontière ; à 79 relevés/jour et sur le plus petit bucket (3 h),
+  l'espérance est d'environ une ligne concernée tous les 750 000 ans, pour une
+  conséquence qui serait qu'un relevé compte dans le bucket d'à côté. Épinglé
+  par un test, pour que ce soit une propriété connue et non du folklore
+- **Vérifications** :
+  - **40 requêtes sur une copie de la base de production** — quatre sondes ×
+    six périodes × quatre plages libres — servies par les deux implémentations
+    côte à côte : **40 réponses identiques octet pour octet** (22 non vides,
+    71 486 octets)
+  - **fuzz différentiel** sur le code livré, jeux hostiles (grandeurs absentes,
+    ±inf, NaN, lignes collées aux frontières, quatre tailles de bucket) :
+    **0 divergence sur 15 000 jeux** à la seconde entière, **6 sur 15 000** en
+    forçant des sous-secondes à 999 999 µs pile sur des frontières — toutes de
+    l'écart milliseconde ci-dessus. Antérieur à 1970 : 0 sur 3 000
+  - **le webhook pendant une inondation de lectures au plafond**, service réel
+    sur uvicorn mono-worker, base au palier de 2027 : latence médiane du webhook
+    **1 535 ms avant, 58 ms après** (max 2 039 → 63 ms), et le débit de lectures
+    double au passage (107 → 204 requêtes écoulées)
+  - **86 tests backend** (9 ajoutés), **54 tests frontend** inchangés. Les tests
+    ajoutés ont été soumis à des mutations de l'implémentation : retirer le
+    filtre de finitude, le `HAVING`, le `FLOOR`, le repli, ou pousser l'arrondi
+    en SQL — chacune est détectée
+- **Signalé, non traité** : retirer l'`ORDER BY bucket ASC` ne fait tomber aucun
+  test, parce que le `GROUP BY` de SQLite passe par un B-tree temporaire qui rend
+  déjà les groupes triés. C'est une coïncidence d'implémentation, pas une
+  garantie ; l'`ORDER BY` reste, et aucun test ne peut aujourd'hui le défendre
+- **Dépendance nouvelle** : `unixepoch()` demande SQLite ≥ 3.38 (cf. §2)
 
 ---
 
