@@ -1,7 +1,7 @@
 # PLAN.md — maison-temp
 
-**Version** : 1.20
-**Date** : 2026-08-30
+**Version** : 1.24
+**Date** : 2026-08-31
 **Référence** : SPEC.md v1.9
 
 ---
@@ -66,13 +66,33 @@ maison-temp/
 
 ## 2. Dépendances
 
-**Backend (Python)**
+**Backend (Python)** — cf. `backend/requirements.txt`, qui fait foi
 ```
-fastapi==0.115.0
-uvicorn[standard]==0.30.0
-python-dotenv==1.0.1
-aiosqlite==0.20.0
+fastapi==0.141.1
+starlette==1.6.0
+uvicorn[standard]==0.52.4
+python-dotenv==1.2.3
+aiosqlite==0.22.1
+httpx==0.28.1
 ```
+Ce bloc était resté sur les versions d'avant la remontée de l'issue #38 ; il est
+resynchronisé ici.
+
+**SQLite** : la bibliothèque du système, pas un paquet Python — `aiosqlite`
+n'est qu'une enveloppe autour du module `sqlite3` de la bibliothèque standard.
+**Version minimale 3.38**, pour `unixepoch()`, sur laquelle repose l'agrégation
+(décision 24). `FLOOR()`, du même calcul, existe depuis la 3.35 — mais **la
+version ne suffit pas** : `FLOOR()` fait partie des fonctions mathématiques,
+**optionnelles à la compilation** (`SQLITE_ENABLE_MATH_FUNCTIONS`). Une
+bibliothèque récente mais compilée sans elles ferait échouer les lectures
+agrégées, et seulement celles-là. Le service ne répond plus 500 dans ce cas : il
+se replie sur le parcours Python et le journalise (décision 24).
+
+Le serveur est en 3.40.1 (Debian 12). **La version de SQLite change les valeurs
+rendues** : à partir de la 3.44, `avg()` somme en Kahan-Babuška-Neumaier et non
+plus naïvement, ce qui décale l'arrondi au dixième sur quelques buckets
+(décision 24). Debian 13 embarque la 3.46 : la montée du système est donc un
+changement de sortie, pas seulement de dépendance.
 
 **Frontend (Node)**
 ```json
@@ -907,7 +927,10 @@ Procédure, à faire dans cet ordre — le service refuse toute écriture entre 
   cinq ans, c'est en réalité l'échéance d'un historique d'un an à la cadence
   actuelle. Déclencheur retenu : **agrégation au-delà de 10 ms sur la requête au
   plafond**, à traiter en SQL (`GROUP BY` sur un bucket calculé) plutôt qu'avec
-  `run_in_threadpool`, qui déplacerait le calcul sans le sortir du GIL
+  `run_in_threadpool`, qui déplacerait le calcul sans le sortir du GIL.
+  **Traité le 2026-08-31 par la décision 24**, avant l'échéance — et la mesure
+  y montre que ce tableau sous-estimait le blocage d'un facteur trois, parce
+  qu'il chronométrait `_aggregate` seule et non ce que la boucle subit
 - **Ce que la limitation ne protège pas.** La colonne « req/s pour saturer »
   ci-dessus vaut `1/T` : c'est ce qu'il faut pour occuper **100 %** d'une boucle,
   et ce n'est pas comparable à une limite qui est **par IP**. Au palier de 2027,
@@ -950,6 +973,222 @@ Procédure, à faire dans cet ordre — le service refuse toute écriture entre 
   demande de l'attention, et le cache météo en mémoire serait dupliqué par
   worker), et `limit_conn`, qui répond à l'épuisement de connexions et non au
   débit — hors sujet de cette issue
+
+### Décision 24 (2026-08-31)
+
+**Agrégation des lectures en SQL plutôt qu'en Python** (issue #67, déclencheur
+posé par la décision 23).
+
+- **Ce qu'on protège reste les relevés, pas la disponibilité.** Le Shelly n'émet
+  qu'une fois et ne réessaie pas (décision 6) : une boucle d'événements occupée,
+  ce sont des mesures définitivement perdues. Le service tourne sur **un seul
+  worker**, et `_aggregate` parcourait les lignes dans le thread de cette boucle
+- **`GROUP BY` sur un bucket calculé**, et non `run_in_threadpool` autour de
+  `_aggregate` : la fonction est du Python pur et garde le GIL, le calcul aurait
+  changé de thread sans sortir de la boucle. `aiosqlite` exécute déjà la requête
+  dans un thread séparé et le module `sqlite3` relâche le GIL pendant
+  `sqlite3_step` — le coût sort réellement
+- **Le blocage était trois fois pire que ce que la décision 23 annonçait.** Elle
+  chronométrait `_aggregate` seule (6,6 ms) ; ce que la boucle subit, mesuré
+  avec une tâche de battement à 1 ms, est de **19,8 ms** aujourd'hui et de
+  **80,9 ms au palier de 2027**. La différence, c'est `fetchall` : construire
+  5 640 puis 28 835 tuples de lignes se fait GIL tenu, entre deux `sqlite3_step`.
+  Agréger en SQL supprime aussi cette part, puisqu'il ne remonte plus que
+  quelques dizaines de buckets. Après : **1,15 ms** et **1,79 ms**
+- **Trois choses devaient être portées en SQL sans être perdues** :
+  - les valeurs non finies, écartées de la moyenne du bucket entier et pas
+    seulement de leur ligne (issue #36) → `CASE WHEN ABS(x) < 9e999 THEN x END`,
+    `9e999` étant l'écriture de l'infini en SQLite. NaN n'a pas besoin d'être
+    traité : SQLite ne sait pas le stocker et le relit en NULL (décision 13,
+    « Note SQLite »), ce qu'un test épingle désormais explicitement ;
+  - les buckets muets — un bucket dont toutes les lignes ont leurs deux
+    grandeurs absentes ne créait aucune entrée, le `defaultdict` n'étant touché
+    que sous les deux `if` → `HAVING mesures > 0` ;
+  - le plancher. `//` de Python plancherise, la division entière de SQLite
+    tronque vers zéro → `FLOOR()`. Sans objet sur les données réelles, toutes
+    postérieures à 1970, mais l'expression doit dire ce qu'elle veut dire
+- **L'arrondi est resté en Python, délibérément.** `ROUND()` de SQLite arrondit
+  à l'écart de zéro, `round()` de Python arrondit au pair, et les deux divergent
+  précisément sur ce que produit une moyenne : 20,2 et 20,3 donnent 20,25, rendu
+  20,2 par l'un et 20,3 par l'autre. Il n'y a que quelques centaines de buckets,
+  cet arrondi-là ne coûte rien à la boucle
+- **Repli sur `_aggregate` quand SQLite ne sait pas dater une ligne.** Le
+  parseur de dates de SQLite est plus strict que `datetime.fromisoformat` : il
+  refuse un décalage sans deux-points (`+0000`, ce que produit `strftime('%z')`),
+  une virgule décimale, un `t` minuscule. `unixepoch` rend alors NULL, ces
+  lignes forment un groupe de clé NULL que `ORDER BY` place en tête, et
+  `_aggregate` reprend la main. Aucune écriture de l'application ne produit ces
+  formes — `_now_iso` écrit toujours la même — mais l'endpoint est public et non
+  authentifié, et un import direct en base ne doit pas le faire répondre à côté.
+  `_aggregate` reste donc du code vivant, et reste la référence de comportement
+- **Un écart connu subsiste, et il est assumé.** SQLite date à la
+  **milliseconde** et arrondit au plus proche : une sous-seconde ≥ 0,9995 s est
+  lue comme la seconde suivante, et si cette seconde est une frontière de
+  bucket, la ligne bascule dans le bucket voisin. Borné aux **500 dernières
+  microsecondes** avant une frontière (vérifié microseconde par microseconde :
+  999 499 est du bon côté, 999 500 bascule). Sur les 8 188 relevés de
+  production, **une** ligne porte une telle sous-seconde et **aucune** ne tombe
+  sur une frontière ; à 79 relevés/jour et sur le plus petit bucket (3 h),
+  l'espérance est d'environ une ligne concernée tous les 750 000 ans, pour une
+  conséquence qui serait qu'un relevé compte dans le bucket d'à côté. Épinglé
+  par un test, pour que ce soit une propriété connue et non du folklore
+- **La version de SQLite change les valeurs rendues, et aucune implémentation
+  Python ne peut coller aux deux.** `sum()` de Python accumule naïvement ;
+  SQLite fait de même **jusqu'à la 3.43** et somme en
+  **Kahan-Babuška-Neumaier à partir de la 3.44**, ce qui rend une moyenne
+  exactement arrondie. Un ULP d'écart, mais un ULP suffit à faire basculer
+  l'arrondi au dixième. Mesuré sur la base de production, sonde `exterieur`,
+  face à `_aggregate` :
+
+  | Pas | Buckets | Divergents sous SQLite 3.40.1 | sous 3.51.1 |
+  |---|---|---|---|
+  | 3 h | 575 | 0 | **17** |
+  | 12 h | 144 | 0 | 1 |
+  | 24 h | 73 | 0 | 1 |
+
+  `math.fsum` colle **exactement** à la 3.51.1 (0 divergence partout) et diverge
+  de la 3.40.1 sur ces mêmes buckets : le choix est entre coller au présent ou à
+  l'avenir, pas entre juste et faux. `_aggregate` garde donc `sum()`, qui est ce
+  que la production calcule aujourd'hui — passer `_aggregate` à `fsum` aurait
+  changé la sortie actuelle sur 11 buckets sur 575, hors du périmètre de cette
+  issue. **Debian 13 embarque la 3.46** : la montée du système décalera ces
+  quelques dixièmes, et aucune des deux valeurs ne sera fausse
+- **Le test différentiel exige donc le découpage, pas la sommation.** Les clés de
+  bucket sont comparées strictement ; chaque valeur doit valoir celle de la
+  somme naïve **ou** celle de la somme exacte. Exiger l'égalité stricte aurait
+  produit un test qui rougit à la prochaine montée du système, avec un message
+  ne pointant vers rien. Ce qui reste défendu : appartenance de chaque ligne à
+  son bucket, grandeurs absentes et non finies, politique d'arrondi
+- **Le `try/except` a rendu la suite de tests aveugle, et il a fallu un second
+  passage pour le voir.** C'est le bon comportement en production et le piège
+  parfait au test : toute panne du chemin SQL retombe sur `_aggregate`, or c'est
+  à `_aggregate` que le test différentiel compare l'endpoint — il passe alors
+  **par construction**. Mesuré en rendant `unixepoch` inconnu, chemin SQL
+  entièrement mort : **87 tests sur 88 restaient verts**, et le seul rouge était
+  celui dont la docstring dit « si cet écart disparaît, retirer ce test ». Une
+  fixture `autouse` espionne désormais `main._aggregate` et fait échouer tout
+  test qui passe par le repli sans l'avoir déclaré (fixture `repli_attendu`) ;
+  la même mutation produit maintenant 15 rouges. Le garde-fou s'adosse à
+  l'espion et non au journal, pour rester valable si ces lignes étaient un jour
+  étranglées
+- **La leçon est la même que pour les harnais** : un correctif qui rend le
+  système plus tolérant rend la suite de tests moins sensible, et les deux
+  effets ne se voient pas au même endroit. Il faut vérifier qu'un test **échoue**
+  quand la fonctionnalité disparaît, pas seulement qu'il passe quand elle est là
+- **Le repli ne rattrapait pas l'échec de la requête, et il était silencieux.**
+  Deux défauts relevés en review, corrigés :
+  - un `try/except sqlite3.OperationalError` entoure désormais la requête. Sans
+    lui, une SQLite sans fonctions mathématiques (cf. §2) faisait répondre 500 à
+    toutes les lectures agrégées — et seulement à elles, les périodes de 12 h et
+    24 h continuant de répondre 200, ce qui rendait la panne d'autant plus
+    difficile à lire ;
+  - les deux motifs de repli sont **journalisés**, sur `uvicorn.error` et non
+    sur un logger à nous : uvicorn configure ce nom, donc le niveau apparaît
+    dans la ligne. Un logger non configuré remonte au logger racine, qu'uvicorn
+    ne touche pas, et finit sur le `lastResort` de la bibliothèque standard —
+    message nu, sans niveau (vérifié sous uvicorn réel). La priorité journald
+    vient du flux et non du texte : ni l'un ni l'autre ne remonte à
+    `journalctl -p warning`, le marqueur cherchable est le mot « repli ».
+    Le repli refait le parcours Python : il rend à la boucle exactement le
+    blocage que cette décision supprime. Mesuré au palier 2027, **une seule ligne mal datée sur 28 916**
+    fait passer le retard de boucle de **1,70 ms à 73,80 ms**, et la requête de
+    47,7 ms à **136,9 ms** — plus lent que l'implémentation d'avant (103,6 ms),
+    les deux requêtes tournant. Un tel repli doit se voir dans le journal
+- **Vérifications** :
+  - **40 requêtes sur une copie de la base de production** — quatre sondes ×
+    six périodes × quatre plages libres — servies par les deux implémentations
+    côte à côte : **40 réponses identiques octet pour octet** (22 non vides,
+    71 486 octets). Sous SQLite 3.40.1 ; cf. la réserve de version ci-dessus
+  - **fuzz différentiel** sur le code livré, jeux hostiles (grandeurs absentes,
+    ±inf, NaN, lignes collées aux frontières, quatre tailles de bucket) :
+    **0 divergence sur 12 000 jeux** — trois époques, dont une antérieure à 1970
+    qui exerce le plancher — dès lors que les sous-secondes restent sous
+    0,9995 s. En autorisant 999 999 µs, **3 712 jeux sur 4 000** divergent :
+    c'est l'écart milliseconde, et rien d'autre. La bascule entre ces deux
+    régimes tient au seul seuil de 0,9995 s, ce qui **démontre** que cet écart
+    est la seule classe de divergence, là où la première rédaction se contentait
+    de l'affirmer
+  - **le webhook pendant une inondation de lectures au plafond**, service réel
+    sur uvicorn mono-worker, base au palier de 2027 : latence médiane du webhook
+    **1 535 ms avant, 58 ms après** (max 2 039 → 63 ms), et le débit de lectures
+    double au passage (107 → 204 requêtes écoulées)
+  - **92 tests backend** (15 ajoutés), **54 tests frontend** inchangés, soumis à
+    **dix-sept mutations** de l'implémentation et du miroir de test — chemin SQL
+    entièrement mort, filtre de finitude, `HAVING`, `FLOOR`, l'un ou l'autre
+    repli, l'une ou l'autre journalisation, arrondi poussé en SQL, filtrage par
+    sonde, sommation paramétrée du miroir, plancher du miroir, `except`
+    élargi, borne des 24 h, nom du logger, repli sans journal, `ORDER BY`
+    inversé : **toutes détectées sauf le retrait de l'`ORDER BY`**, traité
+    ci-dessous. Sept d'entre elles ne l'étaient pas avant les deuxième et
+    troisième passages de review
+  - **L'espion voit un repli que le journal ne verrait pas.** Le troisième
+    passage de review l'a démontré sur une mutation qu'aucun de nos deux lots
+    ne contenait : `if agrege is not None:` → `if agrege:` fait retomber sur
+    `_aggregate` **sans écrire une seule ligne de journal** — une plage vide
+    rend une liste vide, donc fausse. Un garde-fou adossé aux logs y aurait été
+    structurellement aveugle ; l'espion la détecte. La déviation par rapport à
+    la recommandation de review tenait donc à un argument factuel, pas
+    seulement à la crainte d'un étranglement futur
+  - **Quatre mutations passaient encore**, relevées au troisième passage et
+    fermées : élargir le `except` à `Exception` (l'espion compte les replis,
+    pas leurs motifs — un test à `ProgrammingError` sert désormais de témoin) ;
+    déplacer la borne des 24 h de `_bucket_seconds_for_range`, qui décide si
+    une requête agrège ou non ; changer le nom du logger, `caplog` posant son
+    handler sur la racine et l'argument `logger=` ne filtrant donc rien — c'est
+    le nom porté par l'enregistrement qu'il faut vérifier ; et une fenêtre de
+    test dont seule `exterieur` était gardée vierge, alors que le test
+    d'isolation dépend de celle d'une voisine
+  - **Trois tests ne prouvaient rien**, relevés en review et corrigés : la
+    fixture de fidélité du miroir n'avait aucun bucket à plus d'une valeur par
+    grandeur, donc le paramètre de sommation n'y était jamais exercé ; la
+    branche tolérante du test différentiel n'était empruntée sur **aucune** des
+    342 valeurs du jeu aléatoire, donc la tolérance elle-même n'était pas
+    testée ; et aucune fenêtre de test ne contenait deux sondes, donc retirer
+    `sonde_id` du `WHERE` passait inaperçu. Un cas déterministe tiré de la forme
+    d'une descente de température réelle — `[28,1 … 25,6]`, moyenne exacte
+    26,85 — sert désormais de repère : 26,8 sous SQLite < 3.44, 26,9 à partir de
+    la 3.44
+- **Un harnais de fuzz faux, et ce qu'il enseigne.** La première rédaction
+  annonçait « 0 divergence sur 15 000 jeux, 6 sur 15 000 en sous-seconde » et
+  présentait ces jeux comme exerçant les frontières de bucket. Ils ne les
+  exerçaient pas : la base des horodatages (`1780000000`) n'est un multiple
+  d'**aucune** des quatre tailles de bucket, donc les cales `0`, `±1`, `b-1`
+  censées coller aux frontières n'en approchaient aucune. Même défaut dans le
+  test différentiel, dont la base était alignée sur trois tailles sur quatre.
+  C'est le **troisième** harnais faux de ce projet à donner un résultat
+  rassurant (cf. décision 23) : le réflexe à prendre est de vérifier qu'un
+  harnais **échoue** quand il doit échouer avant de croire qu'il réussit
+- **Signalé, non traité** :
+  - **retirer** l'`ORDER BY bucket ASC` ne fait tomber aucun test, parce que le
+    `GROUP BY` de SQLite passe par un B-tree temporaire qui rend déjà les
+    groupes triés dans cet ordre. Coïncidence d'implémentation, pas garantie ;
+    l'`ORDER BY` reste. La formulation précédente — « aucun test ne peut le
+    défendre » — portait trop large : le remplacer par `DESC` fait bien tomber
+    trois tests. C'est son absence qui est indétectable, pas un ordre faux
+  - **une ligne de journal par requête, sans étranglement.** Si le repli
+    s'installe — une SQLite sans fonctions mathématiques, ou une ligne mal
+    datée qui reste en base — chaque lecture agrégée écrit sa ligne, soit au
+    plafond de la limitation de débit (10 r/s) de l'ordre de 100 Mo/jour.
+    Étrangler masquerait la panne ; ne pas étrangler la rend coûteuse tant que
+    `logrotate` n'est pas installé (issue #57). Laissé bruyant délibérément :
+    ce repli n'est pas censé durer
+  - **`try/except sqlite3.OperationalError` est un peu large** : il couvre
+    aussi « database is locked », donc un verrou pris entre les deux requêtes
+    coûte deux attentes au lieu d'une pour le même 500. Conservé large :
+    manquer un 500 sur un endpoint public coûte plus cher qu'une seconde
+    attente sur un cas qui ne se produit pas ici (un seul écrivain). Le journal
+    nomme la cause, il n'induit donc pas en erreur
+  - **`_now_iso()` n'est pas monotone par rapport aux rowid.** Il est évalué
+    avant l'`await db.execute`, donc deux webhooks concurrents peuvent
+    s'insérer dans l'ordre inverse de leurs horodatages : **4 inversions**
+    relevées dans la base de production. La première rédaction justifiait
+    l'égalité des ordres d'accumulation par « les lignes ne sont qu'ajoutées et
+    `_now_iso` est monotone » — c'est faux. La conclusion tient pour une autre
+    raison : le plan de requête passe par `idx_releves_sonde_date`, donc le
+    balayage est en ordre de `recu_le`, quel que soit l'ordre des rowid
+    (vérifié en forçant `NOT INDEXED` : 0 bucket divergent)
+- **Dépendances nouvelles** : SQLite ≥ 3.38 **et compilé avec les fonctions
+  mathématiques** (cf. §2)
 
 ---
 

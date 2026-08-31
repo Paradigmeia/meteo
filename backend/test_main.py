@@ -1,8 +1,10 @@
+import logging
+import math
 import os
 import sqlite3
 import tempfile
 import time
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from fastapi.testclient import TestClient
@@ -16,7 +18,13 @@ config.API_KEY = "test-key"
 _tmpdir = tempfile.TemporaryDirectory()
 config.DATABASE_PATH = os.path.join(_tmpdir.name, "test.db")
 
-from main import _finite_or_none, _parse_shelly_value, app
+from main import (
+    _aggregate,
+    _finite_or_none,
+    _parse_recu_le,
+    _parse_shelly_value,
+    app,
+)
 from models import (
     HUM_ACCEPT_MAX,
     HUM_ACCEPT_MIN,
@@ -989,3 +997,593 @@ def test_meteo_non_finite_upstream_is_neutralised(client, monkeypatch):
     finally:
         main._meteo_cache["data"] = None
         main._meteo_cache["expires_at"] = None
+
+
+
+
+# --- Agrégation en SQL (issue #67) ------------------------------------------
+#
+# `_aggregate` parcourait les lignes dans le thread de la boucle d'événements,
+# sur un service mono-worker : pendant ce temps la boucle ne traitait rien
+# d'autre, y compris les écritures du webhook Shelly, qui n'émet qu'une fois et
+# ne réessaie pas. L'agrégation est passée en SQL ; ces tests vérifient qu'elle
+# rend exactement ce que rendait le Python.
+#
+# La base de test est partagée par le module : ces tests vivent tous sur
+# `exterieur`, dont aucun autre test ne se sert, et chacun ouvre sa propre
+# fenêtre — le test différentiel occupe 2027, les cas particuliers un mois de
+# 2028 chacun. `_agg_fenetre_vierge` refuse de laisser une pollution passer
+# pour un résultat.
+
+_AGG_SLUG = "exterieur"
+
+
+@pytest.fixture
+def repli_attendu():
+    """À demander par un test qui exerce **volontairement** le repli.
+
+    Sa seule présence dans les fixtures du test renverse le garde-fou
+    ci-dessous : au lieu d'exiger que le repli n'ait pas eu lieu, il exige
+    qu'il ait eu lieu.
+    """
+    return True
+
+
+@pytest.fixture(autouse=True)
+def _refuse_le_repli_silencieux(request, monkeypatch):
+    """Aucun test ne doit passer par le repli sans le dire.
+
+    Le `try/except sqlite3.OperationalError` de `_aggregate_sql` est le bon
+    comportement en production et le piège parfait au test : **toute** panne du
+    chemin SQL retombe sur `_aggregate`, or c'est à `_aggregate` que le test
+    différentiel compare l'endpoint. Il passerait alors par construction, sur
+    une implémentation SQL entièrement morte.
+
+    Ce n'est pas une hypothèse : en rendant `unixepoch` inconnu, **87 tests sur
+    88 restaient verts**, et le seul rouge était celui dont la docstring dit
+    « si cet écart disparaît, retirer ce test ». Le garde-fou a donc été ajouté
+    après coup, et cette mutation est ce qui le justifie.
+
+    Il espionne `main._aggregate` plutôt que le journal : la fonction n'est
+    appelée, dans le code de production, que sur le chemin de repli. Les
+    références des tests (`_agg_reference`) passent par le nom importé au
+    chargement du module et ne sont donc pas comptées. Un garde-fou adossé au
+    journal, lui, deviendrait aveugle le jour où on étranglerait ces lignes.
+    """
+    import main
+
+    appels = []
+    vrai = main._aggregate
+    monkeypatch.setattr(
+        main, "_aggregate", lambda *a, **k: (appels.append(1), vrai(*a, **k))[1]
+    )
+    yield
+    if "repli_attendu" in request.fixturenames:
+        assert appels, (
+            "ce test prétend exercer le repli et ne l'a pas fait : "
+            "il ne prouve donc rien"
+        )
+    else:
+        assert not appels, (
+            "l'endpoint est passé par le repli Python : le chemin SQL n'a pas "
+            "été exercé, et la comparaison à `_aggregate` est vide de sens"
+        )
+
+
+def _agg_fenetre_vierge(debut, fin, slug=_AGG_SLUG):
+    """Garde-fou : la fenêtre doit n'appartenir qu'au test qui l'ouvre.
+
+    `slug` est explicite parce qu'un test au moins dépend de la fenêtre d'une
+    **voisine** — celui qui vérifie que les sondes ne se mélangent pas. Se
+    contenter d'`exterieur` y donnerait une assurance fausse.
+    """
+    conn = sqlite3.connect(config.DATABASE_PATH)
+    n = conn.execute(
+        """SELECT COUNT(*) FROM releves
+           WHERE sonde_id = (SELECT id FROM sondes WHERE slug = ?)
+             AND recu_le >= ? AND recu_le <= ?""",
+        (slug, debut, fin),
+    ).fetchone()[0]
+    conn.close()
+    assert n == 0, (
+        f"fenêtre déjà peuplée ({n} lignes sur '{slug}') : les tests se marchent dessus"
+    )
+
+
+def _agg_lignes(debut, fin):
+    conn = sqlite3.connect(config.DATABASE_PATH)
+    rows = conn.execute(
+        """SELECT temperature, humidite, recu_le FROM releves
+           WHERE sonde_id = (SELECT id FROM sondes WHERE slug = ?)
+             AND recu_le >= ? AND recu_le <= ?
+           ORDER BY recu_le ASC""",
+        (_AGG_SLUG, debut, fin),
+    ).fetchall()
+    conn.close()
+    return rows
+
+
+def _agg_reference(debut, fin, bucket_seconds):
+    """Ce que l'ancienne implémentation aurait rendu, sur les mêmes lignes."""
+    return [
+        (r.temperature, r.humidite, r.recu_le)
+        for r in _aggregate(_agg_lignes(debut, fin), bucket_seconds)
+    ]
+
+
+def _agg_miroir(debut, fin, bucket_seconds, somme):
+    """Réimplémentation indépendante de `_aggregate`, paramétrée par la sommation.
+
+    Un test différentiel qui réutiliserait la fonction sous revue ne vérifierait
+    qu'elle-même. Ce miroir sert à produire la **même** agrégation avec une
+    sommation exacte (`math.fsum`) au lieu de la sommation naïve, pour dire ce
+    que vaudrait la moyenne si la précision de la somme ne décidait plus de
+    l'arrondi. Sa fidélité est vérifiée par `test_agg_miroir_fidele_a_aggregate`.
+    """
+    seaux = {}
+    for temp, hum, recu_le in _agg_lignes(debut, fin):
+        cle = int(_parse_recu_le(recu_le).timestamp() // bucket_seconds) * bucket_seconds
+        temp, hum = _finite_or_none(temp), _finite_or_none(hum)
+        if temp is None and hum is None:
+            continue
+        t, h = seaux.setdefault(cle, ([], []))
+        if temp is not None:
+            t.append(temp)
+        if hum is not None:
+            h.append(hum)
+    return [
+        (
+            round(somme(t) / len(t), 1) if t else None,
+            round(somme(h) / len(h), 1) if h else None,
+            datetime.fromtimestamp(cle, tz=timezone.utc),
+        )
+        for cle, (t, h) in sorted(seaux.items())
+    ]
+
+
+def _agg_endpoint(client, debut, fin):
+    resp = client.get("/api/releves/" + _AGG_SLUG, params={"from": debut, "to": fin})
+    assert resp.status_code == 200, resp.text
+    return [(r["temperature"], r["humidite"], _dt(r["recu_le"])) for r in resp.json()]
+
+
+# Six valeurs dont la moyenne exacte, 26,85, tombe pile sur un point d'arrondi :
+# `sum()` de Python donne 26,849999999999998 (→ 26,8) et `math.fsum` 26,850000000000005
+# (→ 26,9). SQLite 3.40.1 rend le premier, la 3.51.1 le second. Tirées de la forme
+# d'une descente de température réelle, pas d'un cas de laboratoire.
+_ECART_SOMMATION = [28.1, 27.6, 27.1, 26.6, 26.1, 25.6]
+
+
+def test_agregation_sql_tolere_le_seul_ecart_de_sommation(client):
+    """La tolérance du test différentiel doit être exercée, pas seulement écrite.
+
+    Sur le jeu aléatoire, aucun bucket ne produit d'écart entre sommation naïve
+    et sommation exacte : la branche tolérante n'y est **jamais** empruntée, et
+    le test différentiel passerait donc même si cette tolérance était fausse.
+    Ce test-ci fournit le cas manquant, déterministe.
+
+    Il vaut aussi comme repère de version : sous SQLite < 3.44 l'endpoint rend
+    26,8, à partir de la 3.44 il rend 26,9, et les deux sont acceptables — c'est
+    exactement ce que la décision 24 de PLAN.md consigne.
+    """
+    # 25 jours : bucket de 12 h, donc les six valeurs (00 h à 05 h) tombent bien
+    # dans le même. Sur 5 jours le bucket est de 3 h et elles se séparaient en deux.
+    debut, fin = "2029-05-01T00:00:00+00:00", "2029-05-26T00:00:00+00:00"
+    _agg_fenetre_vierge(debut, fin)
+    for i, v in enumerate(_ECART_SOMMATION):
+        _insert_releve(_AGG_SLUG, v, None, f"2029-05-01T{i:02d}:00:00+00:00")
+
+    naif = _agg_reference(debut, fin, 43200)
+    exact = _agg_miroir(debut, fin, 43200, math.fsum)
+    assert naif[0][0] == 26.8 and exact[0][0] == 26.9, (
+        "le cas doit vraiment distinguer les deux sommations, sinon il ne teste rien"
+    )
+    assert _agg_endpoint(client, debut, fin)[0][0] in (26.8, 26.9)
+
+
+def test_agg_miroir_fidele_a_aggregate(client):
+    """Le miroir doit reproduire `_aggregate` à la sommation près.
+
+    Sans ce test, `_agg_miroir` pourrait diverger de la fonction qu'il est censé
+    refléter et le test différentiel comparerait deux choses différentes en
+    croyant mesurer la précision de la somme.
+    """
+    debut, fin = "2029-01-01T00:00:00+00:00", "2029-01-26T00:00:00+00:00"
+    _agg_fenetre_vierge(debut, fin)
+    _insert_releve(_AGG_SLUG, 20.0, 50.0, "2029-01-01T00:00:00+00:00")
+    _insert_releve(_AGG_SLUG, float("inf"), None, "2029-01-01T03:00:00+00:00")
+    _insert_releve(_AGG_SLUG, None, None, "2029-01-05T00:00:00+00:00")  # bucket muet
+    # Un bucket à six valeurs dont la moyenne dépend de l'ordre de sommation :
+    # sans lui, aucun bucket de cette fenêtre n'a plus d'une valeur par grandeur
+    # et le paramètre `somme` n'est jamais exercé — remplacer `somme(...)` par
+    # `sum(...)` dans le miroir passait inaperçu.
+    for i, v in enumerate(_ECART_SOMMATION):
+        _insert_releve(_AGG_SLUG, v, None, f"2029-01-09T{i:02d}:00:00+00:00")
+    assert _agg_miroir(debut, fin, 43200, sum) == _agg_reference(debut, fin, 43200)
+
+    # Et le plancher : sans horodatage antérieur à 1970, une troncature dans le
+    # miroir se confondrait avec le plancher de `_aggregate`.
+    avant, apres = "1968-06-01T00:00:00+00:00", "1968-06-03T00:00:00+00:00"
+    _agg_fenetre_vierge(avant, apres)
+    _insert_releve(_AGG_SLUG, 5.0, None, "1968-06-01T19:00:00+00:00")
+    assert _agg_miroir(avant, apres, 10800, sum) == _agg_reference(avant, apres, 10800)
+
+
+def test_agregation_sql_identique_au_python(client):
+    """Le test central de la bascule : sur un jeu volontairement hostile, la
+    requête SQL doit rendre la même agrégation que `_aggregate`.
+
+    Le jeu mélange ce qui distingue les deux implémentations : grandeurs
+    absentes, valeurs non finies (issue #36), lignes collées aux frontières de
+    bucket, sous-secondes, et des trous assez larges pour laisser des buckets
+    entièrement vides. Les quatre tailles de bucket sont couvertes en variant
+    l'étendue de la plage.
+
+    **Le découpage en buckets est exigé strictement.** Les valeurs, elles, sont
+    acceptées si elles valent celle de la sommation naïve **ou** celle de la
+    sommation exacte : `sum()` de Python accumule naïvement, SQLite fait de même
+    jusqu'à la 3.43 et somme en Kahan-Babuška-Neumaier à partir de la 3.44 — un
+    ULP d'écart, qui suffit à faire basculer l'arrondi au dixième. Mesuré sur la
+    base de production, 17 buckets sur 575 au pas de 3 h changent d'un dixième
+    entre SQLite 3.40.1 (le serveur) et 3.51.1 (Debian 13 en embarque 3.46).
+    Exiger l'égalité stricte reviendrait donc à écrire un test qui rougira à la
+    prochaine montée du système, pour une différence dont aucune des deux
+    valeurs n'est fausse. Ce qu'on défend ici, c'est l'appartenance de chaque
+    ligne à son bucket, le traitement des grandeurs absentes et non finies, et
+    la politique d'arrondi — tout ce qui ne dépend pas de l'ordre de sommation.
+    """
+    import random
+
+    # Aligné sur 259 200 s, la plus grande taille de bucket — donc sur les
+    # quatre. Sans cet alignement, les cales « collées aux frontières »
+    # ci-dessous (0, ±1, b-1, b) ne tombent sur aucune frontière réelle et la
+    # strate la plus intéressante du jeu reste inexplorée.
+    base = datetime.fromtimestamp(
+        (int(datetime(2027, 1, 4, tzinfo=timezone.utc).timestamp()) // 259200) * 259200,
+        tz=timezone.utc,
+    )
+    assert int(base.timestamp()) % 259200 == 0
+    _agg_fenetre_vierge(base.isoformat(), (base + timedelta(days=210)).isoformat())
+
+    random.seed(67)
+    instants = set()
+    for _ in range(600):
+        # des grappes, des trous, et des instants collés aux frontières
+        decalage = random.choice(
+            [random.randrange(0, 86400 * 200), random.randrange(0, 3600)]
+        )
+        cale = random.choice([0, -1, 1, 10799, 10800, 86399, 86400])
+        instants.add(base + timedelta(seconds=decalage + cale))
+    for t in sorted(instants):
+        r = random.random()
+        temp = None if r < 0.30 else (float("inf") if r < 0.34 else round(random.uniform(-8, 38), 1))
+        r = random.random()
+        hum = None if r < 0.30 else (float("-inf") if r < 0.34 else round(random.uniform(15, 98), 1))
+        _insert_releve(
+            _AGG_SLUG,
+            temp,
+            hum,
+            t.replace(microsecond=random.choice([0, 1, 123456, 500000])).isoformat(),
+        )
+
+    debut = base.isoformat()
+    for jours, bucket in [(5, 10800), (25, 43200), (85, 86400), (200, 259200)]:
+        fin = (base + timedelta(days=jours)).isoformat()
+        naif = _agg_reference(debut, fin, bucket)
+        exact = _agg_miroir(debut, fin, bucket, math.fsum)
+        obtenu = _agg_endpoint(client, debut, fin)
+        contexte = f"plage de {jours} jours, bucket de {bucket} s"
+        assert naif, f"{contexte} : le jeu doit produire des buckets"
+        assert [t for _, _, t in obtenu] == [t for _, _, t in naif], (
+            f"{contexte} : le découpage en buckets doit être identique"
+        )
+        for (ot, oh, t), (nt, nh, _), (et, eh, _) in zip(obtenu, naif, exact):
+            assert ot in (nt, et), (
+                f"{contexte}, bucket {t.isoformat()} : température {ot}, "
+                f"attendu {nt} (somme naïve) ou {et} (somme exacte)"
+            )
+            assert oh in (nh, eh), (
+                f"{contexte}, bucket {t.isoformat()} : humidité {oh}, "
+                f"attendu {nh} (somme naïve) ou {eh} (somme exacte)"
+            )
+
+
+def test_agregation_sql_ecarte_les_valeurs_non_finies(client):
+    """±inf est écarté de la moyenne du bucket, pas seulement de sa propre ligne.
+
+    C'est le pendant SQL de `_finite_or_none` (issue #36) : `ABS(x) < 9e999` est
+    faux pour l'infini, donc AVG et COUNT l'ignorent. Sans ce filtre la moyenne
+    du bucket entier vaudrait inf, et la sérialisation de toute la réponse
+    échouerait — pas seulement celle de la ligne fautive.
+    """
+    debut, fin = "2028-01-01T00:00:00+00:00", "2028-01-06T00:00:00+00:00"
+    _agg_fenetre_vierge(debut, fin)
+    _insert_releve(_AGG_SLUG, 20.0, 50.0, "2028-01-01T00:00:00+00:00")
+    _insert_releve(_AGG_SLUG, float("inf"), float("-inf"), "2028-01-01T01:00:00+00:00")
+    _insert_releve(_AGG_SLUG, 22.0, 60.0, "2028-01-01T02:00:00+00:00")
+    data = _agg_endpoint(client, debut, fin)
+    assert data[0][:2] == (21.0, 55.0), "moyenne des seules lignes finies"
+    assert data == _agg_reference(debut, fin, 43200)
+
+
+def test_sqlite_relit_un_nan_en_null(client):
+    """Le filtre SQL ne teste pas NaN, et c'est délibéré : SQLite ne sait pas le
+    stocker et le relit en NULL, que AVG ignore déjà.
+
+    Ce test épingle l'hypothèse plutôt que de la laisser implicite : c'est ici
+    qu'on s'apercevrait qu'une version de SQLite s'est mise à conserver NaN.
+    """
+    _insert_releve(_AGG_SLUG, float("nan"), None, "2028-02-01T00:00:00+00:00")
+    conn = sqlite3.connect(config.DATABASE_PATH)
+    row = conn.execute(
+        "SELECT temperature, typeof(temperature) FROM releves WHERE recu_le = ?",
+        ("2028-02-01T00:00:00+00:00",),
+    ).fetchone()
+    conn.close()
+    assert row == (None, "null")
+
+
+def test_agregation_sql_n_invente_pas_de_bucket_vide(client):
+    """Un bucket dont toutes les lignes ont leurs deux grandeurs absentes
+    n'apparaît pas.
+
+    Propriété discrète de `_aggregate`, dont le `defaultdict` n'était touché que
+    sous ses deux `if` : un bucket entièrement muet n'y créait aucune entrée.
+    C'est le rôle de `HAVING mesures > 0`.
+    """
+    debut, fin = "2028-03-01T00:00:00+00:00", "2028-03-26T00:00:00+00:00"
+    _agg_fenetre_vierge(debut, fin)
+    _insert_releve(_AGG_SLUG, 18.0, None, "2028-03-01T00:00:00+00:00")
+    _insert_releve(_AGG_SLUG, None, None, "2028-03-02T00:00:00+00:00")  # bucket muet
+    _insert_releve(_AGG_SLUG, None, None, "2028-03-02T06:00:00+00:00")
+    _insert_releve(_AGG_SLUG, 19.0, None, "2028-03-03T00:00:00+00:00")
+    data = _agg_endpoint(client, debut, fin)
+    jours = {t.date().isoformat() for _, _, t in data}
+    assert {"2028-03-01", "2028-03-03"} <= jours
+    assert "2028-03-02" not in jours, "un bucket sans aucune mesure ne doit pas être émis"
+    assert data == _agg_reference(debut, fin, 43200)
+
+
+def test_agregation_sql_garde_l_arrondi_de_python(client):
+    """`ROUND()` de SQLite arrondit à l'écart de zéro, `round()` de Python au pair.
+
+    Les deux divergent exactement sur ce que produit une moyenne : 20,2 et 20,3
+    donnent 20,25, que Python rend en 20,2 et SQLite en 20,3. L'arrondi est donc
+    resté en Python — ce test tomberait si on le poussait dans la requête.
+    """
+    debut, fin = "2028-04-01T00:00:00+00:00", "2028-04-06T00:00:00+00:00"
+    _agg_fenetre_vierge(debut, fin)
+    _insert_releve(_AGG_SLUG, 20.2, None, "2028-04-01T00:00:00+00:00")
+    _insert_releve(_AGG_SLUG, 20.3, None, "2028-04-01T01:00:00+00:00")
+    assert _agg_endpoint(client, debut, fin)[0][0] == 20.2
+
+
+def test_agregation_sql_frontiere_de_bucket(client):
+    """La seconde exacte d'une frontière ouvre le bucket suivant, celle d'avant
+    ferme le précédent.
+
+    Vérifie le plancher : la division entière de SQLite tronque vers zéro là où
+    `//` de Python plancherise, et c'est `FLOOR()` qui les réconcilie.
+    """
+    frontiere = datetime(2028, 5, 1, tzinfo=timezone.utc)
+    assert int(frontiere.timestamp()) % 43200 == 0, "la date choisie doit être une frontière"
+    debut, fin = "2028-04-25T00:00:00+00:00", "2028-05-20T00:00:00+00:00"
+    _agg_fenetre_vierge(debut, fin)
+    _insert_releve(_AGG_SLUG, 10.0, None, (frontiere - timedelta(seconds=1)).isoformat())
+    _insert_releve(_AGG_SLUG, 30.0, None, frontiere.isoformat())
+    par_bucket = {t: temp for temp, _, t in _agg_endpoint(client, debut, fin)}
+    assert par_bucket[frontiere - timedelta(seconds=43200)] == 10.0
+    assert par_bucket[frontiere] == 30.0
+
+
+def test_agregation_se_replie_quand_sqlite_ne_sait_pas_dater(client, caplog, repli_attendu):
+    """Une ligne que `datetime.fromisoformat` accepte mais que SQLite refuse ne
+    doit pas amputer le résultat.
+
+    `2028-06-02T00:00:00+0000` en est une : décalage sans deux-points, la forme
+    que produit `strftime('%z')` en Python et qu'on trouve dans un import de
+    données historiques. `unixepoch` rend NULL, la ligne se retrouve dans un
+    groupe de clé NULL — que `ORDER BY` place en tête — et `_aggregate` reprend
+    la main. Elle reste dans la plage parce que le filtre `recu_le >= ? AND <= ?`
+    est textuel : c'est ce qui rend le cas atteignable, là où une forme compacte
+    `20280602T000000` serait de toute façon écartée par ce filtre.
+
+    Aucune écriture de l'application ne produit ce format — `_now_iso` écrit
+    toujours le même — mais l'endpoint est public et non authentifié, et une
+    écriture directe en base ne doit pas le faire répondre à côté.
+    """
+    debut, fin = "2028-06-01T00:00:00+00:00", "2028-06-26T00:00:00+00:00"
+    _agg_fenetre_vierge(debut, fin)
+    illisible = "2028-06-02T00:00:00+0000"
+    assert debut <= illisible <= fin, "la ligne doit tomber dans la plage textuelle"
+
+    conn = sqlite3.connect(config.DATABASE_PATH)
+    assert conn.execute("SELECT unixepoch(?)", (illisible,)).fetchone()[0] is None
+    conn.close()
+    assert datetime.fromisoformat(illisible), "Python, lui, sait la dater"
+
+    _insert_releve(_AGG_SLUG, 15.0, None, illisible)
+    _insert_releve(_AGG_SLUG, 25.0, None, "2028-06-03T00:00:00+00:00")
+    with caplog.at_level(logging.WARNING, logger="uvicorn.error"):
+        data = _agg_endpoint(client, debut, fin)
+    assert 15.0 in [t for t, _, _ in data], "la ligne datée par Python seul reste lue"
+    assert data == _agg_reference(debut, fin, 43200)
+    # Le repli refait le parcours Python et rend à la boucle d'événements le
+    # blocage que #67 supprime : une seule ligne mal datée dans la plage suffit.
+    # Il ne doit donc pas être silencieux.
+    assert any(
+        r.name == "uvicorn.error" and "repli" in r.getMessage() for r in caplog.records
+    )
+
+
+def test_agregation_sql_horodatage_anterieur_a_1970(client):
+    """Le plancher, dans le seul cas où il se distingue de la troncature.
+
+    `//` de Python plancherise, la division entière de SQLite tronque vers zéro :
+    les deux ne coïncident que sur des horodatages postérieurs à 1970 — les
+    seuls que cette base contienne, `_now_iso` étant son unique auteur. C'est
+    `FLOOR()` qui les réconcilie ailleurs, et ce test est ce qui le prouve :
+    sans lui, `unixepoch(recu_le) / 10800` placerait cette ligne trois heures
+    plus tard.
+    """
+    debut, fin = "1969-12-30T00:00:00+00:00", "1970-01-01T00:00:00+00:00"
+    _agg_fenetre_vierge(debut, fin)
+    instant = datetime(1969, 12, 31, 19, tzinfo=timezone.utc)
+    assert instant.timestamp() < 0 and instant.timestamp() % 10800 != 0
+    _insert_releve(_AGG_SLUG, 5.0, None, instant.isoformat())
+    data = _agg_endpoint(client, debut, fin)
+    assert [t for _, _, t in data] == [datetime(1969, 12, 31, 18, tzinfo=timezone.utc)]
+    assert data == _agg_reference(debut, fin, 10800)
+
+
+def test_agregation_sql_ecart_connu_sous_la_milliseconde(client):
+    """Épingle la seule différence connue entre les deux implémentations.
+
+    SQLite date à la **milliseconde** et arrondit au plus proche : une
+    sous-seconde ≥ 0,9995 s est lue comme la seconde suivante. Quand cette
+    seconde-là est une frontière de bucket, la ligne change de bucket — c'est le
+    seul écart qui subsiste, et il est borné aux **500 dernières microsecondes**
+    de la seconde qui précède une frontière (vérifié microseconde par
+    microseconde : 999 499 est encore du bon côté, 999 500 bascule).
+
+    Assumé plutôt que corrigé : sur les 8 188 relevés de la base de production,
+    **une** ligne porte une sous-seconde ≥ 0,9995 et **aucune** ne tombe sur une
+    frontière. À 79 relevés/jour et pour le plus petit bucket (3 h), l'espérance
+    est d'environ une ligne concernée tous les 750 000 ans, et la conséquence
+    serait qu'un relevé compte dans le bucket voisin. `_aggregate` reste la
+    référence : ce test dit ce que fait le code livré, pas ce qui serait idéal.
+    """
+    debut, fin = "2028-07-25T00:00:00+00:00", "2028-08-19T00:00:00+00:00"
+    _agg_fenetre_vierge(debut, fin)
+    frontiere = datetime(2028, 8, 1, tzinfo=timezone.utc)
+    assert int(frontiere.timestamp()) % 43200 == 0
+    juste_avant = frontiere - timedelta(microseconds=1)
+    _insert_releve(_AGG_SLUG, 7.0, None, juste_avant.isoformat())
+
+    obtenu = _agg_endpoint(client, debut, fin)
+    reference = _agg_reference(debut, fin, 43200)
+    assert [t for _, _, t in reference] == [frontiere - timedelta(seconds=43200)], (
+        "Python place la ligne dans le bucket qui précède, elle lui appartient"
+    )
+    assert [t for _, _, t in obtenu] == [frontiere], (
+        "SQL l'arrondit à la frontière et la place dans le bucket suivant"
+    )
+    assert obtenu != reference, (
+        "si cet écart disparaît, la milliseconde n'est plus une limite : "
+        "retirer ce test et la réserve qui l'accompagne dans PLAN.md"
+    )
+
+
+def test_agregation_se_replie_si_la_requete_ne_s_execute_pas(client, monkeypatch, caplog, repli_attendu):
+    """Une SQLite qui ne sait pas exécuter la requête ne doit pas rendre 500.
+
+    Le cas concret n'est pas théorique : `FLOOR()` fait partie des fonctions
+    mathématiques, **optionnelles à la compilation** de SQLite
+    (`SQLITE_ENABLE_MATH_FUNCTIONS`). Une bibliothèque assez récente pour
+    `unixepoch()` mais compilée sans elles ferait échouer toutes les lectures
+    agrégées — et seulement celles-là, les périodes de 12 h et 24 h ne passant
+    pas par ce chemin. Sans ce garde, l'endpoint, public et non authentifié,
+    répondait 500.
+
+    Le repli doit aussi se **voir** : il refait le parcours Python et rend donc
+    à la boucle d'événements exactement le blocage que l'issue #67 supprime.
+    """
+    import main
+
+    debut, fin = "2029-03-01T00:00:00+00:00", "2029-03-26T00:00:00+00:00"
+    _agg_fenetre_vierge(debut, fin)
+    _insert_releve(_AGG_SLUG, 12.0, 40.0, "2029-03-01T00:00:00+00:00")
+    _insert_releve(_AGG_SLUG, 14.0, 44.0, "2029-03-02T00:00:00+00:00")
+
+    monkeypatch.setattr(main, "_AGGREGATE_SQL", main._AGGREGATE_SQL.replace("FLOOR(", "FLOOR_ABSENTE("))
+    with caplog.at_level(logging.WARNING, logger="uvicorn.error"):
+        data = _agg_endpoint(client, debut, fin)
+    assert data == _agg_reference(debut, fin, 43200)
+    assert any(
+        r.name == "uvicorn.error" and "repli" in r.getMessage() for r in caplog.records
+    ), (
+        "le repli doit être journalisé, et sur `uvicorn.error` : un logger que "
+        "uvicorn ne configure pas finit sur `logging.lastResort`, message nu sans "
+        "niveau. `caplog` pose son handler sur la racine et capte tout, donc c'est "
+        "le nom porté par l'enregistrement qu'il faut vérifier, pas l'argument "
+        "`logger=` de `at_level`, qui ne filtre rien ici"
+    )
+
+    # Témoin : une période non agrégée (24 h) ne passe pas par cette requête et
+    # n'aurait donc rien signalé — c'est ce qui rendrait la panne difficile à voir.
+    assert client.get("/api/releves/" + _AGG_SLUG, params={"period": "24h"}).status_code == 200
+
+
+def test_agregation_sql_ne_melange_pas_les_sondes(client):
+    """Une autre sonde présente dans la même fenêtre ne doit pas entrer dans la
+    moyenne.
+
+    Les autres tests d'agrégation ouvrent des fenêtres vierges pour **toutes**
+    les sondes — leurs données vivent en 2026, les miennes en 2027 et après.
+    Retirer `sonde_id = ?` du `WHERE` passait donc inaperçu : il n'y avait rien
+    à mélanger. Ce test fournit de quoi.
+    """
+    debut, fin = "2029-07-01T00:00:00+00:00", "2029-07-26T00:00:00+00:00"
+    for sonde in (_AGG_SLUG, "salon", "chambre-jade"):
+        _agg_fenetre_vierge(debut, fin, sonde)
+    _insert_releve(_AGG_SLUG, 10.0, 30.0, "2029-07-01T00:00:00+00:00")
+    _insert_releve("salon", 90.0, 90.0, "2029-07-01T01:00:00+00:00")
+    _insert_releve("chambre-jade", -90.0, 10.0, "2029-07-01T02:00:00+00:00")
+
+    data = _agg_endpoint(client, debut, fin)
+    assert data[0][:2] == (10.0, 30.0), "seules les lignes de la sonde demandée comptent"
+    assert data == _agg_reference(debut, fin, 43200)
+
+    # Et le voisin garde bien les siennes : le filtre ne doit pas non plus les perdre.
+    voisin = client.get("/api/releves/salon", params={"from": debut, "to": fin})
+    assert voisin.status_code == 200
+    assert [r["temperature"] for r in voisin.json()] == [90.0]
+
+
+def test_agregation_ne_gobe_que_l_indisponibilite_de_la_requete(client, monkeypatch):
+    """Le repli doit rattraper une SQLite qui ne sait pas exécuter la requête,
+    pas n'importe quelle panne.
+
+    L'espion de `_refuse_le_repli_silencieux` compte les replis, pas leurs
+    motifs : élargir le `except` à `Exception` ne lui apprend rien, et la suite
+    restait entièrement verte (vérifié). Or un `except Exception` transformerait
+    n'importe quel défaut — une requête mal formée, une erreur de type, une base
+    corrompue — en dégradation silencieuse et permanente vers le parcours qui
+    bloque la boucle d'événements.
+
+    Une `ProgrammingError` sert de témoin : elle vient d'un défaut de
+    programmation, pas d'une SQLite qui manquerait d'une fonction, et elle doit
+    remonter.
+    """
+    import main
+
+    debut, fin = "2029-09-01T00:00:00+00:00", "2029-09-26T00:00:00+00:00"
+    _agg_fenetre_vierge(debut, fin)
+    _insert_releve(_AGG_SLUG, 11.0, None, "2029-09-01T00:00:00+00:00")
+
+    # Un paramètre de moins que ce que `_aggregate_sql` fournit : sqlite3 lève
+    # une ProgrammingError, distincte de l'OperationalError d'une fonction absente.
+    monkeypatch.setattr(
+        main,
+        "_AGGREGATE_SQL",
+        main._AGGREGATE_SQL.replace("AND recu_le <= ?", "AND recu_le <= '9999'"),
+    )
+    with pytest.raises(sqlite3.ProgrammingError):
+        client.get("/api/releves/" + _AGG_SLUG, params={"from": debut, "to": fin})
+
+
+def test_bucket_seconds_bascule_a_24h(client):
+    """La frontière entre lecture brute et lecture agrégée est à 24 h pile.
+
+    Les tests d'agrégation exercent des plages franchement au-delà, et ceux de
+    période s'arrêtent au code de retour : décaler la borne d'une heure ne
+    faisait rougir personne. C'est pourtant elle qui décide si une requête passe
+    par le chemin qu'agrège ou par celui qui rend les lignes une à une.
+    """
+    from main import _bucket_seconds_for_range
+
+    assert _bucket_seconds_for_range(24) is None, "24 h reste brut"
+    assert _bucket_seconds_for_range(24.5) == 10800, "au-delà de 24 h, on agrège"
+    assert _bucket_seconds_for_range(168) == 10800 and _bucket_seconds_for_range(169) == 43200
+    assert _bucket_seconds_for_range(720) == 43200 and _bucket_seconds_for_range(721) == 86400
+    assert _bucket_seconds_for_range(2160) == 86400 and _bucket_seconds_for_range(2161) == 259200

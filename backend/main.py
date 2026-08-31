@@ -7,7 +7,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from collections import defaultdict
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
+import logging
 import secrets
+import sqlite3
 import httpx
 import asyncio
 import math
@@ -31,6 +33,16 @@ METEO_URL = (
 
 _meteo_cache: dict = {"data": None, "expires_at": None}
 _meteo_lock = asyncio.Lock()
+
+# `uvicorn.error` et non un logger à nous : uvicorn configure ce nom avec son
+# formateur, donc le niveau apparaît dans la ligne. Un logger non configuré
+# remonte au logger racine, qu'uvicorn ne touche pas, et finit sur le
+# `lastResort` de la bibliothèque standard — message nu, sans niveau (vérifié
+# sous uvicorn réel). Le journal systemd reçoit les deux, mais seul le premier
+# se relit. La priorité journald, elle, vient du flux et non du texte : ni l'un
+# ni l'autre ne remonte à `journalctl -p warning`, le marqueur cherchable est
+# le mot « repli ».
+logger = logging.getLogger("uvicorn.error")
 
 api_key_header = APIKeyHeader(name="X-API-Key", auto_error=True)
 
@@ -315,6 +327,12 @@ def _bucket_seconds_for_range(hours: float) -> int | None:
 
 
 def _aggregate(rows, bucket_seconds):
+    """Agrège en Python. Chemin de repli de `_aggregate_sql` — cf. sa docstring.
+
+    Reste la référence de comportement : c'est cette fonction que le test
+    différentiel compare à la requête SQL, et elle sert encore pour de vrai
+    quand SQLite ne sait pas dater une ligne.
+    """
     buckets = defaultdict(lambda: {"temps": [], "hums": []})
     for temp, hum, recu_le_str in rows:
         dt = _parse_recu_le(recu_le_str)
@@ -338,6 +356,132 @@ def _aggregate(rows, bucket_seconds):
             recu_le=datetime.fromtimestamp(key, tz=timezone.utc),
         ))
     return result
+
+
+# Pendant SQL de `_finite_or_none` : une valeur non finie contaminerait la
+# moyenne de tout le bucket, on l'écarte de l'accumulation comme une mesure
+# absente (issue #36). `9e999` est la façon d'écrire l'infini en SQLite, donc
+# `ABS(x) < 9e999` est faux pour ±inf et NULL pour NULL — deux cas qu'AVG et
+# COUNT ignorent l'un comme l'autre. NaN n'a pas besoin d'être traité : SQLite
+# ne sait pas le stocker et le relit en NULL (vérifié, cf. test dédié).
+_FINI = "CASE WHEN ABS({c}) < 9e999 THEN {c} END"
+
+# `FLOOR(x / bucket)` et non `x / bucket` : la division entière de SQLite
+# tronque vers zéro, celle de Python (`//`) plancherise. Les deux coïncident sur
+# des horodatages postérieurs à 1970 — les seuls que cette base contienne — mais
+# pas avant, et reproduire `_aggregate` demande le plancher. Le paramètre est
+# passé deux fois : en flottant pour forcer une division flottante, en entier
+# pour remultiplier sans reperdre le type.
+_AGGREGATE_SQL = f"""
+    SELECT CAST(FLOOR(unixepoch(recu_le) / ?) AS INTEGER) * ? AS bucket,
+           AVG({_FINI.format(c="temperature")}),
+           AVG({_FINI.format(c="humidite")}),
+           COUNT({_FINI.format(c="temperature")})
+         + COUNT({_FINI.format(c="humidite")}) AS mesures
+      FROM releves
+     WHERE sonde_id = ? AND recu_le >= ? AND recu_le <= ?
+  GROUP BY bucket
+    HAVING mesures > 0
+  ORDER BY bucket ASC
+"""
+
+
+async def _aggregate_sql(db, sonde_id, since, until, bucket_seconds):
+    """Agrège en SQL. Renvoie `None` s'il faut se replier sur `_aggregate`.
+
+    Raison d'être : `_aggregate` parcourait les lignes **dans le thread de la
+    boucle d'événements**, sur un service mono-worker. Pendant ce temps la
+    boucle ne traite rien d'autre, y compris les écritures du webhook Shelly —
+    qui n'émet qu'une fois et ne réessaie pas (décision 6), donc un relevé
+    perdu l'est définitivement (issue #67). Ici le parcours a lieu dans le
+    thread d'aiosqlite, et SQLite relâche le GIL pendant `sqlite3_step` : le
+    coût sort réellement de la boucle, ce qu'un `run_in_threadpool` autour du
+    Python pur n'aurait pas fait.
+
+    `HAVING mesures > 0` reproduit une propriété discrète de `_aggregate` : un
+    bucket dont toutes les lignes ont leurs deux grandeurs absentes ou non
+    finies n'y crée aucune entrée, parce que le `defaultdict` n'est touché que
+    sous les deux `if`. Il ne doit donc pas apparaître ici non plus.
+
+    L'arrondi reste en Python : `ROUND()` de SQLite arrondit à l'écart de zéro
+    quand `round()` de Python arrondit au pair, et les deux divergent
+    exactement sur les valeurs que produit une moyenne — `round(20.25, 1)` vaut
+    20,2 en Python et 20,3 en SQL. Il n'y a au plus que quelques centaines de
+    buckets, cet arrondi-là ne coûte rien à la boucle.
+
+    Deux motifs de repli, tous deux journalisés — le repli refait le parcours
+    Python et rend donc la boucle d'événements exactement au blocage que cette
+    fonction existe pour supprimer. Il ne doit pas être silencieux :
+
+    - **SQLite ne sait pas dater une ligne** là où `datetime.fromisoformat` y
+      arrive : décalage sans deux-points (`+0000`, ce que produit
+      `strftime('%z')`), virgule décimale, `t` minuscule. `unixepoch` rend NULL,
+      ces lignes forment un groupe de clé NULL que `ORDER BY` place en tête.
+      Une seule ligne de ce genre dans la plage suffit à faire retomber toute la
+      requête sur le parcours Python ;
+    - **la requête ne s'exécute pas** (`OperationalError`), cf. le garde
+      ci-dessous.
+
+    Aucune ligne du premier genre ne peut naître de l'application : `_now_iso`
+    écrit toujours le même format. C'est un garde-fou contre une écriture
+    directe en base, sur un endpoint public et non authentifié.
+
+    Deux écarts connus face à `_aggregate`, tous deux assumés :
+
+    - **la milliseconde.** SQLite date à la milliseconde et arrondit au plus
+      proche, donc une sous-seconde ≥ 0,9995 s est lue comme la seconde
+      suivante ; si cette seconde est une frontière de bucket, la ligne bascule
+      dans le bucket voisin. Borné aux 500 dernières microsecondes avant une
+      frontière. Sur les 8 188 relevés de production, une seule ligne porte une
+      telle sous-seconde et aucune ne tombe sur une frontière. Cf.
+      `test_agregation_sql_ecart_connu_sous_la_milliseconde` ;
+    - **la sommation flottante.** `sum()` de Python accumule naïvement ; SQLite
+      fait de même **jusqu'à la 3.43**, mais somme en Kahan-Babuška-Neumaier à
+      partir de la **3.44**, ce qui rend une moyenne exactement arrondie. Les
+      deux ne diffèrent que d'un ULP, mais un ULP suffit à faire basculer
+      l'arrondi au dixième : mesuré sur la base de production, **17 buckets sur
+      575** au pas de 3 h changent d'un dixième entre SQLite 3.40.1 et 3.51.1.
+      Aucune implémentation Python unique ne peut coller aux deux versions —
+      `math.fsum` colle exactement à la 3.51.1 et diverge de la 3.40.1 sur ces
+      mêmes 17 buckets. `_aggregate` garde donc `sum()`, qui est ce que la
+      production calcule aujourd'hui, et le test différentiel accepte l'une ou
+      l'autre des deux valeurs plutôt que d'exiger une égalité qui ne survivrait
+      pas à une montée de Debian. Cf. `test_agregation_sql_identique_au_python`.
+    """
+    try:
+        async with db.execute(
+            _AGGREGATE_SQL,
+            (float(bucket_seconds), bucket_seconds, sonde_id, since, until),
+        ) as cur:
+            rows = await cur.fetchall()
+    except sqlite3.OperationalError as exc:
+        # Sans ce garde, une lecture agrégée répond 500 sur un endpoint public.
+        # Le cas concret n'est pas théorique : `FLOOR()` fait partie des
+        # fonctions mathématiques, **optionnelles à la compilation** de SQLite
+        # (`SQLITE_ENABLE_MATH_FUNCTIONS`). Une bibliothèque assez récente pour
+        # `unixepoch()` mais compilée sans elles ferait échouer toutes les
+        # lectures agrégées, et seulement celles-là — les périodes de 12 h et
+        # 24 h, qui ne passent pas par ici, continueraient de répondre 200.
+        logger.warning(
+            "agrégation SQL indisponible (%s) : repli sur le parcours Python, "
+            "qui bloque la boucle d'événements (issue #67)", exc,
+        )
+        return None
+    if rows and rows[0][0] is None:
+        logger.warning(
+            "sonde_id=%s : au moins une ligne de la plage porte un `recu_le` que "
+            "SQLite ne sait pas dater ; repli sur le parcours Python, qui bloque "
+            "la boucle d'événements (issue #67)", sonde_id,
+        )
+        return None
+    return [
+        ReleverOut(
+            temperature=round(avg_temp, 1) if avg_temp is not None else None,
+            humidite=round(avg_hum, 1) if avg_hum is not None else None,
+            recu_le=datetime.fromtimestamp(bucket, tz=timezone.utc),
+        )
+        for bucket, avg_temp, avg_hum, _ in rows
+    ]
 
 
 @app.get("/api/releves/{slug}", response_model=list[ReleverOut])
@@ -408,6 +552,11 @@ async def get_releves(
         if row is None:
             raise HTTPException(status_code=404, detail=f"Sonde '{slug}' inconnue")
         sonde_id = row[0]
+        bucket = _bucket_seconds_for_range(hours)
+        if bucket:
+            agrege = await _aggregate_sql(db, sonde_id, since, until, bucket)
+            if agrege is not None:
+                return agrege
         async with db.execute(
             """SELECT temperature, humidite, recu_le FROM releves
                WHERE sonde_id = ? AND recu_le >= ? AND recu_le <= ?
@@ -415,7 +564,6 @@ async def get_releves(
             (sonde_id, since, until),
         ) as cur:
             rows = await cur.fetchall()
-    bucket = _bucket_seconds_for_range(hours)
     if bucket:
         return _aggregate(rows, bucket)
     return [
