@@ -161,10 +161,21 @@ Légende : 🔲 À faire · 🔄 En cours · ✅ Livré · ⚠️ Dette techniqu
     dans la fenêtre. **Ce qui a envoyé ce TERM n'est pas identifié**
   - `Restart=on-failure` ne l'a pas relancé, et c'est conforme : une sortie sur
     TERM propre n'est pas un échec. Un `Restart=always` l'aurait relevé
-  - **coût réel** : dernier relevé d'`exterieur` à 14:10:06, soit environ
-    **7 à 8 relevés perdus** à 79/jour. Le Shelly n'émet qu'une fois et ne
+  - **coût réel** : dernier relevé d'`exterieur` à 14:10:06. L'estimer à partir
+    des « 79 relevés/jour » donnerait 7 à 8 lignes perdues, mais la cadence
+    réelle est bien plus irrégulière que cette moyenne : mesurée sur les
+    dernières 48 h, l'écart entre deux émissions vaut **21,6 min en moyenne
+    mais jusqu'à 121 min**, et chaque émission écrit deux lignes (température et
+    humidité sur deux events distincts). La fourchette honnête est donc de
+    **2 à 12 lignes**, pas un chiffre. Le Shelly n'émet qu'une fois et ne
     réessaie pas (décision 6) — c'est exactement la perte que l'issue #67
     cherche à éviter, arrivée par l'autre bout
+  - à retenir pour les futures mesures : **79 relevés/jour compte des lignes,
+    pas des émissions**, et la cadence n'est pas régulière. Les deux chiffres
+    ont servi tels quels dans les décisions 23 et 24 sans que ça change leurs
+    conclusions — le volume annuel, lui, est bien mesuré — mais tout
+    raisonnement sur un *intervalle* doit partir de la distribution, pas de la
+    moyenne
   - **rien ne surveille ce service.** Deux heures d'arrêt n'ont produit aucune
     alerte, et il n'a été relancé que parce qu'un déploiement passait par là.
     À traiter séparément : `Restart=always` est un correctif d'une ligne, la
