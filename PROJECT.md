@@ -142,8 +142,33 @@ Légende : 🔲 À faire · 🔄 En cours · ✅ Livré · ⚠️ Dette techniqu
   sur les versions d'avant #38, plancher SQLite ≥ 3.38 **compilé avec les
   fonctions mathématiques**, et réserve sur la version qui change les valeurs).
   SPEC.md inchangée
-- **Non déployé** : reste à faire (`git pull` dans `/home/debian/meteo`, puis
-  `systemctl restart maison-temp`)
+- **Déployé le 2026-08-31** (`c52d0d6`) : les quatre routes en 200, la plage
+  libre d'un an en 200, les cas durs des issues précédentes inchangés (400 pour
+  #37 et #59, 401 pour #44, 404 pour une sonde inconnue), aucun traceback et
+  **aucune ligne de repli** dans le journal. `period=1an` sur `exterieur` répond
+  en 10,8 ms bout en bout, contre ~23 ms avant. Vérifié avant de relancer que le
+  SQLite du venv de production expose bien `unixepoch()` **et** `FLOOR()` — la
+  seule dépendance nouvelle, et celle dont l'absence est silencieuse à
+  l'installation. Et vérifié après : sur la base de production vivante, les 8
+  combinaisons sonde × période rendent **exactement** ce que `_aggregate` aurait
+  rendu (454 buckets comparés)
+- **Le service était arrêté depuis 2 h 10 au moment du déploiement**, et rien ne
+  l'avait signalé. Découvert en préparant le déploiement, pas par une alerte :
+  - arrêté le 2026-08-31 à **14:18:36 UTC** par un SIGTERM, sortie propre après
+    19 h 42 de fonctionnement. Le journal ne porte **ni `Stopping…` ni
+    `Stopped…`** — la paire que systemd écrit pour un `systemctl stop` — mais
+    seulement `Deactivated successfully`, et aucune entrée `sudo` ou `systemctl`
+    dans la fenêtre. **Ce qui a envoyé ce TERM n'est pas identifié**
+  - `Restart=on-failure` ne l'a pas relancé, et c'est conforme : une sortie sur
+    TERM propre n'est pas un échec. Un `Restart=always` l'aurait relevé
+  - **coût réel** : dernier relevé d'`exterieur` à 14:10:06, soit environ
+    **7 à 8 relevés perdus** à 79/jour. Le Shelly n'émet qu'une fois et ne
+    réessaie pas (décision 6) — c'est exactement la perte que l'issue #67
+    cherche à éviter, arrivée par l'autre bout
+  - **rien ne surveille ce service.** Deux heures d'arrêt n'ont produit aucune
+    alerte, et il n'a été relancé que parce qu'un déploiement passait par là.
+    À traiter séparément : `Restart=always` est un correctif d'une ligne, la
+    supervision en est un autre
 
 ### 2026-08-30 — Issue #38 : remontée des dépendances Python
 
