@@ -1070,17 +1070,24 @@ def _refuse_le_repli_silencieux(request, monkeypatch):
         )
 
 
-def _agg_fenetre_vierge(debut, fin):
-    """Garde-fou : la fenêtre doit n'appartenir qu'au test qui l'ouvre."""
+def _agg_fenetre_vierge(debut, fin, slug=_AGG_SLUG):
+    """Garde-fou : la fenêtre doit n'appartenir qu'au test qui l'ouvre.
+
+    `slug` est explicite parce qu'un test au moins dépend de la fenêtre d'une
+    **voisine** — celui qui vérifie que les sondes ne se mélangent pas. Se
+    contenter d'`exterieur` y donnerait une assurance fausse.
+    """
     conn = sqlite3.connect(config.DATABASE_PATH)
     n = conn.execute(
         """SELECT COUNT(*) FROM releves
            WHERE sonde_id = (SELECT id FROM sondes WHERE slug = ?)
              AND recu_le >= ? AND recu_le <= ?""",
-        (_AGG_SLUG, debut, fin),
+        (slug, debut, fin),
     ).fetchone()[0]
     conn.close()
-    assert n == 0, f"fenêtre déjà peuplée ({n} lignes) : les tests se marchent dessus"
+    assert n == 0, (
+        f"fenêtre déjà peuplée ({n} lignes sur '{slug}') : les tests se marchent dessus"
+    )
 
 
 def _agg_lignes(debut, fin):
@@ -1404,7 +1411,9 @@ def test_agregation_se_replie_quand_sqlite_ne_sait_pas_dater(client, caplog, rep
     # Le repli refait le parcours Python et rend à la boucle d'événements le
     # blocage que #67 supprime : une seule ligne mal datée dans la plage suffit.
     # Il ne doit donc pas être silencieux.
-    assert any("repli" in m for m in caplog.messages)
+    assert any(
+        r.name == "uvicorn.error" and "repli" in r.getMessage() for r in caplog.records
+    )
 
 
 def test_agregation_sql_horodatage_anterieur_a_1970(client):
@@ -1490,8 +1499,14 @@ def test_agregation_se_replie_si_la_requete_ne_s_execute_pas(client, monkeypatch
     with caplog.at_level(logging.WARNING, logger="uvicorn.error"):
         data = _agg_endpoint(client, debut, fin)
     assert data == _agg_reference(debut, fin, 43200)
-    assert any("repli" in m for m in caplog.messages), (
-        "le repli doit être journalisé : il ramène le blocage de boucle que #67 supprime"
+    assert any(
+        r.name == "uvicorn.error" and "repli" in r.getMessage() for r in caplog.records
+    ), (
+        "le repli doit être journalisé, et sur `uvicorn.error` : un logger que "
+        "uvicorn ne configure pas finit sur `logging.lastResort`, message nu sans "
+        "niveau. `caplog` pose son handler sur la racine et capte tout, donc c'est "
+        "le nom porté par l'enregistrement qu'il faut vérifier, pas l'argument "
+        "`logger=` de `at_level`, qui ne filtre rien ici"
     )
 
     # Témoin : une période non agrégée (24 h) ne passe pas par cette requête et
@@ -1509,7 +1524,8 @@ def test_agregation_sql_ne_melange_pas_les_sondes(client):
     à mélanger. Ce test fournit de quoi.
     """
     debut, fin = "2029-07-01T00:00:00+00:00", "2029-07-26T00:00:00+00:00"
-    _agg_fenetre_vierge(debut, fin)
+    for sonde in (_AGG_SLUG, "salon", "chambre-jade"):
+        _agg_fenetre_vierge(debut, fin, sonde)
     _insert_releve(_AGG_SLUG, 10.0, 30.0, "2029-07-01T00:00:00+00:00")
     _insert_releve("salon", 90.0, 90.0, "2029-07-01T01:00:00+00:00")
     _insert_releve("chambre-jade", -90.0, 10.0, "2029-07-01T02:00:00+00:00")
@@ -1522,3 +1538,52 @@ def test_agregation_sql_ne_melange_pas_les_sondes(client):
     voisin = client.get("/api/releves/salon", params={"from": debut, "to": fin})
     assert voisin.status_code == 200
     assert [r["temperature"] for r in voisin.json()] == [90.0]
+
+
+def test_agregation_ne_gobe_que_l_indisponibilite_de_la_requete(client, monkeypatch):
+    """Le repli doit rattraper une SQLite qui ne sait pas exécuter la requête,
+    pas n'importe quelle panne.
+
+    L'espion de `_refuse_le_repli_silencieux` compte les replis, pas leurs
+    motifs : élargir le `except` à `Exception` ne lui apprend rien, et la suite
+    restait entièrement verte (vérifié). Or un `except Exception` transformerait
+    n'importe quel défaut — une requête mal formée, une erreur de type, une base
+    corrompue — en dégradation silencieuse et permanente vers le parcours qui
+    bloque la boucle d'événements.
+
+    Une `ProgrammingError` sert de témoin : elle vient d'un défaut de
+    programmation, pas d'une SQLite qui manquerait d'une fonction, et elle doit
+    remonter.
+    """
+    import main
+
+    debut, fin = "2029-09-01T00:00:00+00:00", "2029-09-26T00:00:00+00:00"
+    _agg_fenetre_vierge(debut, fin)
+    _insert_releve(_AGG_SLUG, 11.0, None, "2029-09-01T00:00:00+00:00")
+
+    # Un paramètre de moins que ce que `_aggregate_sql` fournit : sqlite3 lève
+    # une ProgrammingError, distincte de l'OperationalError d'une fonction absente.
+    monkeypatch.setattr(
+        main,
+        "_AGGREGATE_SQL",
+        main._AGGREGATE_SQL.replace("AND recu_le <= ?", "AND recu_le <= '9999'"),
+    )
+    with pytest.raises(sqlite3.ProgrammingError):
+        client.get("/api/releves/" + _AGG_SLUG, params={"from": debut, "to": fin})
+
+
+def test_bucket_seconds_bascule_a_24h(client):
+    """La frontière entre lecture brute et lecture agrégée est à 24 h pile.
+
+    Les tests d'agrégation exercent des plages franchement au-delà, et ceux de
+    période s'arrêtent au code de retour : décaler la borne d'une heure ne
+    faisait rougir personne. C'est pourtant elle qui décide si une requête passe
+    par le chemin qu'agrège ou par celui qui rend les lignes une à une.
+    """
+    from main import _bucket_seconds_for_range
+
+    assert _bucket_seconds_for_range(24) is None, "24 h reste brut"
+    assert _bucket_seconds_for_range(24.5) == 10800, "au-delà de 24 h, on agrège"
+    assert _bucket_seconds_for_range(168) == 10800 and _bucket_seconds_for_range(169) == 43200
+    assert _bucket_seconds_for_range(720) == 43200 and _bucket_seconds_for_range(721) == 86400
+    assert _bucket_seconds_for_range(2160) == 86400 and _bucket_seconds_for_range(2161) == 259200

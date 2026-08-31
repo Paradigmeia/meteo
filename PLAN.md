@@ -1,6 +1,6 @@
 # PLAN.md — maison-temp
 
-**Version** : 1.23
+**Version** : 1.24
 **Date** : 2026-08-31
 **Référence** : SPEC.md v1.9
 
@@ -1112,12 +1112,32 @@ posé par la décision 23).
     sur uvicorn mono-worker, base au palier de 2027 : latence médiane du webhook
     **1 535 ms avant, 58 ms après** (max 2 039 → 63 ms), et le débit de lectures
     double au passage (107 → 204 requêtes écoulées)
-  - **90 tests backend** (13 ajoutés), **54 tests frontend** inchangés, soumis à
-    **onze mutations** de l'implémentation et du miroir de test — chemin SQL
+  - **92 tests backend** (15 ajoutés), **54 tests frontend** inchangés, soumis à
+    **dix-sept mutations** de l'implémentation et du miroir de test — chemin SQL
     entièrement mort, filtre de finitude, `HAVING`, `FLOOR`, l'un ou l'autre
     repli, l'une ou l'autre journalisation, arrondi poussé en SQL, filtrage par
-    sonde, sommation paramétrée du miroir, plancher du miroir : **toutes
-    détectées**. Trois de ces mutations ne l'étaient pas au passage précédent
+    sonde, sommation paramétrée du miroir, plancher du miroir, `except`
+    élargi, borne des 24 h, nom du logger, repli sans journal, `ORDER BY`
+    inversé : **toutes détectées sauf le retrait de l'`ORDER BY`**, traité
+    ci-dessous. Sept d'entre elles ne l'étaient pas avant les deuxième et
+    troisième passages de review
+  - **L'espion voit un repli que le journal ne verrait pas.** Le troisième
+    passage de review l'a démontré sur une mutation qu'aucun de nos deux lots
+    ne contenait : `if agrege is not None:` → `if agrege:` fait retomber sur
+    `_aggregate` **sans écrire une seule ligne de journal** — une plage vide
+    rend une liste vide, donc fausse. Un garde-fou adossé aux logs y aurait été
+    structurellement aveugle ; l'espion la détecte. La déviation par rapport à
+    la recommandation de review tenait donc à un argument factuel, pas
+    seulement à la crainte d'un étranglement futur
+  - **Quatre mutations passaient encore**, relevées au troisième passage et
+    fermées : élargir le `except` à `Exception` (l'espion compte les replis,
+    pas leurs motifs — un test à `ProgrammingError` sert désormais de témoin) ;
+    déplacer la borne des 24 h de `_bucket_seconds_for_range`, qui décide si
+    une requête agrège ou non ; changer le nom du logger, `caplog` posant son
+    handler sur la racine et l'argument `logger=` ne filtrant donc rien — c'est
+    le nom porté par l'enregistrement qu'il faut vérifier ; et une fenêtre de
+    test dont seule `exterieur` était gardée vierge, alors que le test
+    d'isolation dépend de celle d'une voisine
   - **Trois tests ne prouvaient rien**, relevés en review et corrigés : la
     fixture de fidélité du miroir n'avait aucun bucket à plus d'une valeur par
     grandeur, donc le paramètre de sommation n'y était jamais exercé ; la
@@ -1139,10 +1159,12 @@ posé par la décision 23).
   rassurant (cf. décision 23) : le réflexe à prendre est de vérifier qu'un
   harnais **échoue** quand il doit échouer avant de croire qu'il réussit
 - **Signalé, non traité** :
-  - retirer l'`ORDER BY bucket ASC` ne fait tomber aucun test, parce que le
+  - **retirer** l'`ORDER BY bucket ASC` ne fait tomber aucun test, parce que le
     `GROUP BY` de SQLite passe par un B-tree temporaire qui rend déjà les
-    groupes triés. Coïncidence d'implémentation, pas garantie ; l'`ORDER BY`
-    reste, et aucun test ne peut aujourd'hui le défendre
+    groupes triés dans cet ordre. Coïncidence d'implémentation, pas garantie ;
+    l'`ORDER BY` reste. La formulation précédente — « aucun test ne peut le
+    défendre » — portait trop large : le remplacer par `DESC` fait bien tomber
+    trois tests. C'est son absence qui est indétectable, pas un ordre faux
   - **une ligne de journal par requête, sans étranglement.** Si le repli
     s'installe — une SQLite sans fonctions mathématiques, ou une ligne mal
     datée qui reste en base — chaque lecture agrégée écrit sa ligne, soit au

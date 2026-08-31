@@ -59,6 +59,15 @@ Légende : 🔲 À faire · 🔄 En cours · ✅ Livré · ⚠️ Dette techniqu
   une frontière de bucket fait basculer la ligne. Sur les 8 188 relevés de
   production, une seule ligne porte une telle sous-seconde et aucune n'est sur
   une frontière — espérance d'environ un cas tous les 750 000 ans
+- **Troisième passage de review : APPROVE**, avec quatre mutations encore non
+  détectées, fermées avant de rendre la main — `except` élargi à `Exception`
+  (l'espion compte les replis, pas leurs motifs), borne des 24 h de
+  `_bucket_seconds_for_range`, nom du logger que `caplog` ne vérifiait pas, et
+  une fenêtre de test dont seule `exterieur` était gardée vierge. Il a aussi
+  démontré que ma déviation sur le garde-fou tenait à un argument factuel et
+  pas seulement prospectif : `if agrege is not None:` → `if agrege:` produit un
+  repli **sans aucune ligne de journal**, invisible à un garde-fou adossé aux
+  logs, visible par l'espion
 - **Corrigé après un second passage de review**, qui a trouvé que ma propre
   correction du passage précédent avait **rendu la suite de tests aveugle** :
   le `try/except` fait retomber toute panne du chemin SQL sur `_aggregate`, or
@@ -108,13 +117,16 @@ Légende : 🔲 À faire · 🔄 En cours · ✅ Livré · ⚠️ Dette techniqu
   sous-secondes restent sous 0,9995 s — et 3 712 sur 4 000 dès qu'on autorise
   999 999 µs, ce qui **démontre** que l'écart milliseconde est la seule classe
   de divergence au lieu de l'affirmer ; **88 tests backend** (11 ajoutés), 54
-  frontend inchangés — **90 tests backend** après le second passage (13 ajoutés),
-  et **onze mutations de l'implémentation et du miroir de test, toutes
-  détectées**, dont trois qui ne l'étaient pas au passage précédent
+  frontend inchangés — **92 tests backend** après trois passages de review
+  (15 ajoutés), et **dix-sept mutations de l'implémentation et du miroir de
+  test, toutes détectées sauf le retrait de l'`ORDER BY`** ci-dessous ; sept
+  d'entre elles ne l'étaient pas avant les deuxième et troisième passages
 - **Signalé, non traité** :
-  - retirer l'`ORDER BY bucket ASC` ne fait tomber aucun test — le `GROUP BY` de
-    SQLite passe par un B-tree temporaire qui rend déjà les groupes triés.
-    Coïncidence d'implémentation, pas garantie
+  - **retirer** l'`ORDER BY bucket ASC` ne fait tomber aucun test — le
+    `GROUP BY` de SQLite passe par un B-tree temporaire qui rend déjà les
+    groupes triés dans cet ordre. Coïncidence d'implémentation, pas garantie.
+    En revanche le remplacer par `DESC` fait tomber trois tests : c'est son
+    absence qui est indétectable, pas un ordre faux (j'avais écrit trop large)
   - le repli, s'il s'installait, écrirait une ligne de journal par requête, soit
     ~100 Mo/jour au plafond de la limitation de débit. Laissé bruyant
     délibérément — étrangler masquerait la panne — mais ça renforce #57
@@ -125,7 +137,7 @@ Légende : 🔲 À faire · 🔄 En cours · ✅ Livré · ⚠️ Dette techniqu
     monotonie ; c'était faux. La conclusion tient pour une autre raison : le
     plan passe par `idx_releves_sonde_date`, donc le balayage est en ordre de
     `recu_le` (vérifié en forçant `NOT INDEXED`)
-- **PLAN.md v1.20 → v1.23** (décision 24 ; déclencheur de la décision 23 marqué
+- **PLAN.md v1.20 → v1.24** (décision 24 ; déclencheur de la décision 23 marqué
   atteint et traité ; §2 Dépendances resynchronisé avec `requirements.txt`, resté
   sur les versions d'avant #38, plancher SQLite ≥ 3.38 **compilé avec les
   fonctions mathématiques**, et réserve sur la version qui change les valeurs).
