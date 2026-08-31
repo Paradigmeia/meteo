@@ -59,7 +59,21 @@ Légende : 🔲 À faire · 🔄 En cours · ✅ Livré · ⚠️ Dette techniqu
   une frontière de bucket fait basculer la ligne. Sur les 8 188 relevés de
   production, une seule ligne porte une telle sous-seconde et aucune n'est sur
   une frontière — espérance d'environ un cas tous les 750 000 ans
-- **Corrigé après review adversariale**, quatre défauts réels :
+- **Corrigé après un second passage de review**, qui a trouvé que ma propre
+  correction du passage précédent avait **rendu la suite de tests aveugle** :
+  le `try/except` fait retomber toute panne du chemin SQL sur `_aggregate`, or
+  c'est à `_aggregate` que le test différentiel compare l'endpoint — il passait
+  donc par construction. En rendant `unixepoch` inconnu, chemin SQL entièrement
+  mort, **87 tests sur 88 restaient verts**, et le seul rouge était celui dont la
+  docstring dit de le retirer. Une fixture `autouse` espionne désormais
+  `main._aggregate` et fait échouer tout test qui passe par le repli sans
+  l'avoir déclaré ; la même mutation produit 15 rouges. Trois tests ne prouvaient
+  rien non plus : la fidélité du miroir n'exerçait jamais son paramètre de
+  sommation, la branche tolérante du test différentiel n'était empruntée sur
+  aucune des 342 valeurs du jeu, et aucune fenêtre ne contenait deux sondes.
+  La journalisation partait par `lastResort`, sans niveau : elle passe sur
+  `uvicorn.error`
+- **Corrigé au premier passage de review**, quatre défauts réels :
   - **la version de SQLite change les valeurs rendues.** À partir de la 3.44,
     `avg()` somme en Kahan-Babuška-Neumaier et non plus naïvement — un ULP, qui
     suffit à faire basculer l'arrondi au dixième. Sur la base de production,
@@ -94,11 +108,16 @@ Légende : 🔲 À faire · 🔄 En cours · ✅ Livré · ⚠️ Dette techniqu
   sous-secondes restent sous 0,9995 s — et 3 712 sur 4 000 dès qu'on autorise
   999 999 µs, ce qui **démontre** que l'écart milliseconde est la seule classe
   de divergence au lieu de l'affirmer ; **88 tests backend** (11 ajoutés), 54
-  frontend inchangés, et **sept mutations de l'implémentation, toutes détectées**
+  frontend inchangés — **90 tests backend** après le second passage (13 ajoutés),
+  et **onze mutations de l'implémentation et du miroir de test, toutes
+  détectées**, dont trois qui ne l'étaient pas au passage précédent
 - **Signalé, non traité** :
   - retirer l'`ORDER BY bucket ASC` ne fait tomber aucun test — le `GROUP BY` de
     SQLite passe par un B-tree temporaire qui rend déjà les groupes triés.
     Coïncidence d'implémentation, pas garantie
+  - le repli, s'il s'installait, écrirait une ligne de journal par requête, soit
+    ~100 Mo/jour au plafond de la limitation de débit. Laissé bruyant
+    délibérément — étrangler masquerait la panne — mais ça renforce #57
   - **`_now_iso()` n'est pas monotone par rapport aux rowid** : il est évalué
     avant l'`await`, donc deux webhooks concurrents peuvent s'insérer dans
     l'ordre inverse de leurs horodatages — **4 inversions** en base de
@@ -106,7 +125,7 @@ Légende : 🔲 À faire · 🔄 En cours · ✅ Livré · ⚠️ Dette techniqu
     monotonie ; c'était faux. La conclusion tient pour une autre raison : le
     plan passe par `idx_releves_sonde_date`, donc le balayage est en ordre de
     `recu_le` (vérifié en forçant `NOT INDEXED`)
-- **PLAN.md v1.20 → v1.22** (décision 24 ; déclencheur de la décision 23 marqué
+- **PLAN.md v1.20 → v1.23** (décision 24 ; déclencheur de la décision 23 marqué
   atteint et traité ; §2 Dépendances resynchronisé avec `requirements.txt`, resté
   sur les versions d'avant #38, plancher SQLite ≥ 3.38 **compilé avec les
   fonctions mathématiques**, et réserve sur la version qui change les valeurs).

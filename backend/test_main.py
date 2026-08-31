@@ -1018,6 +1018,58 @@ def test_meteo_non_finite_upstream_is_neutralised(client, monkeypatch):
 _AGG_SLUG = "exterieur"
 
 
+@pytest.fixture
+def repli_attendu():
+    """À demander par un test qui exerce **volontairement** le repli.
+
+    Sa seule présence dans les fixtures du test renverse le garde-fou
+    ci-dessous : au lieu d'exiger que le repli n'ait pas eu lieu, il exige
+    qu'il ait eu lieu.
+    """
+    return True
+
+
+@pytest.fixture(autouse=True)
+def _refuse_le_repli_silencieux(request, monkeypatch):
+    """Aucun test ne doit passer par le repli sans le dire.
+
+    Le `try/except sqlite3.OperationalError` de `_aggregate_sql` est le bon
+    comportement en production et le piège parfait au test : **toute** panne du
+    chemin SQL retombe sur `_aggregate`, or c'est à `_aggregate` que le test
+    différentiel compare l'endpoint. Il passerait alors par construction, sur
+    une implémentation SQL entièrement morte.
+
+    Ce n'est pas une hypothèse : en rendant `unixepoch` inconnu, **87 tests sur
+    88 restaient verts**, et le seul rouge était celui dont la docstring dit
+    « si cet écart disparaît, retirer ce test ». Le garde-fou a donc été ajouté
+    après coup, et cette mutation est ce qui le justifie.
+
+    Il espionne `main._aggregate` plutôt que le journal : la fonction n'est
+    appelée, dans le code de production, que sur le chemin de repli. Les
+    références des tests (`_agg_reference`) passent par le nom importé au
+    chargement du module et ne sont donc pas comptées. Un garde-fou adossé au
+    journal, lui, deviendrait aveugle le jour où on étranglerait ces lignes.
+    """
+    import main
+
+    appels = []
+    vrai = main._aggregate
+    monkeypatch.setattr(
+        main, "_aggregate", lambda *a, **k: (appels.append(1), vrai(*a, **k))[1]
+    )
+    yield
+    if "repli_attendu" in request.fixturenames:
+        assert appels, (
+            "ce test prétend exercer le repli et ne l'a pas fait : "
+            "il ne prouve donc rien"
+        )
+    else:
+        assert not appels, (
+            "l'endpoint est passé par le repli Python : le chemin SQL n'a pas "
+            "été exercé, et la comparaison à `_aggregate` est vide de sens"
+        )
+
+
 def _agg_fenetre_vierge(debut, fin):
     """Garde-fou : la fenêtre doit n'appartenir qu'au test qui l'ouvre."""
     conn = sqlite3.connect(config.DATABASE_PATH)
@@ -1088,6 +1140,40 @@ def _agg_endpoint(client, debut, fin):
     return [(r["temperature"], r["humidite"], _dt(r["recu_le"])) for r in resp.json()]
 
 
+# Six valeurs dont la moyenne exacte, 26,85, tombe pile sur un point d'arrondi :
+# `sum()` de Python donne 26,849999999999998 (→ 26,8) et `math.fsum` 26,850000000000005
+# (→ 26,9). SQLite 3.40.1 rend le premier, la 3.51.1 le second. Tirées de la forme
+# d'une descente de température réelle, pas d'un cas de laboratoire.
+_ECART_SOMMATION = [28.1, 27.6, 27.1, 26.6, 26.1, 25.6]
+
+
+def test_agregation_sql_tolere_le_seul_ecart_de_sommation(client):
+    """La tolérance du test différentiel doit être exercée, pas seulement écrite.
+
+    Sur le jeu aléatoire, aucun bucket ne produit d'écart entre sommation naïve
+    et sommation exacte : la branche tolérante n'y est **jamais** empruntée, et
+    le test différentiel passerait donc même si cette tolérance était fausse.
+    Ce test-ci fournit le cas manquant, déterministe.
+
+    Il vaut aussi comme repère de version : sous SQLite < 3.44 l'endpoint rend
+    26,8, à partir de la 3.44 il rend 26,9, et les deux sont acceptables — c'est
+    exactement ce que la décision 24 de PLAN.md consigne.
+    """
+    # 25 jours : bucket de 12 h, donc les six valeurs (00 h à 05 h) tombent bien
+    # dans le même. Sur 5 jours le bucket est de 3 h et elles se séparaient en deux.
+    debut, fin = "2029-05-01T00:00:00+00:00", "2029-05-26T00:00:00+00:00"
+    _agg_fenetre_vierge(debut, fin)
+    for i, v in enumerate(_ECART_SOMMATION):
+        _insert_releve(_AGG_SLUG, v, None, f"2029-05-01T{i:02d}:00:00+00:00")
+
+    naif = _agg_reference(debut, fin, 43200)
+    exact = _agg_miroir(debut, fin, 43200, math.fsum)
+    assert naif[0][0] == 26.8 and exact[0][0] == 26.9, (
+        "le cas doit vraiment distinguer les deux sommations, sinon il ne teste rien"
+    )
+    assert _agg_endpoint(client, debut, fin)[0][0] in (26.8, 26.9)
+
+
 def test_agg_miroir_fidele_a_aggregate(client):
     """Le miroir doit reproduire `_aggregate` à la sommation près.
 
@@ -1100,8 +1186,20 @@ def test_agg_miroir_fidele_a_aggregate(client):
     _insert_releve(_AGG_SLUG, 20.0, 50.0, "2029-01-01T00:00:00+00:00")
     _insert_releve(_AGG_SLUG, float("inf"), None, "2029-01-01T03:00:00+00:00")
     _insert_releve(_AGG_SLUG, None, None, "2029-01-05T00:00:00+00:00")  # bucket muet
-    _insert_releve(_AGG_SLUG, 22.0, 60.0, "2029-01-09T00:00:00+00:00")
+    # Un bucket à six valeurs dont la moyenne dépend de l'ordre de sommation :
+    # sans lui, aucun bucket de cette fenêtre n'a plus d'une valeur par grandeur
+    # et le paramètre `somme` n'est jamais exercé — remplacer `somme(...)` par
+    # `sum(...)` dans le miroir passait inaperçu.
+    for i, v in enumerate(_ECART_SOMMATION):
+        _insert_releve(_AGG_SLUG, v, None, f"2029-01-09T{i:02d}:00:00+00:00")
     assert _agg_miroir(debut, fin, 43200, sum) == _agg_reference(debut, fin, 43200)
+
+    # Et le plancher : sans horodatage antérieur à 1970, une troncature dans le
+    # miroir se confondrait avec le plancher de `_aggregate`.
+    avant, apres = "1968-06-01T00:00:00+00:00", "1968-06-03T00:00:00+00:00"
+    _agg_fenetre_vierge(avant, apres)
+    _insert_releve(_AGG_SLUG, 5.0, None, "1968-06-01T19:00:00+00:00")
+    assert _agg_miroir(avant, apres, 10800, sum) == _agg_reference(avant, apres, 10800)
 
 
 def test_agregation_sql_identique_au_python(client):
@@ -1271,7 +1369,7 @@ def test_agregation_sql_frontiere_de_bucket(client):
     assert par_bucket[frontiere] == 30.0
 
 
-def test_agregation_se_replie_quand_sqlite_ne_sait_pas_dater(client, caplog):
+def test_agregation_se_replie_quand_sqlite_ne_sait_pas_dater(client, caplog, repli_attendu):
     """Une ligne que `datetime.fromisoformat` accepte mais que SQLite refuse ne
     doit pas amputer le résultat.
 
@@ -1299,7 +1397,7 @@ def test_agregation_se_replie_quand_sqlite_ne_sait_pas_dater(client, caplog):
 
     _insert_releve(_AGG_SLUG, 15.0, None, illisible)
     _insert_releve(_AGG_SLUG, 25.0, None, "2028-06-03T00:00:00+00:00")
-    with caplog.at_level(logging.WARNING, logger="maison-temp"):
+    with caplog.at_level(logging.WARNING, logger="uvicorn.error"):
         data = _agg_endpoint(client, debut, fin)
     assert 15.0 in [t for t, _, _ in data], "la ligne datée par Python seul reste lue"
     assert data == _agg_reference(debut, fin, 43200)
@@ -1367,7 +1465,7 @@ def test_agregation_sql_ecart_connu_sous_la_milliseconde(client):
     )
 
 
-def test_agregation_se_replie_si_la_requete_ne_s_execute_pas(client, monkeypatch, caplog):
+def test_agregation_se_replie_si_la_requete_ne_s_execute_pas(client, monkeypatch, caplog, repli_attendu):
     """Une SQLite qui ne sait pas exécuter la requête ne doit pas rendre 500.
 
     Le cas concret n'est pas théorique : `FLOOR()` fait partie des fonctions
@@ -1389,7 +1487,7 @@ def test_agregation_se_replie_si_la_requete_ne_s_execute_pas(client, monkeypatch
     _insert_releve(_AGG_SLUG, 14.0, 44.0, "2029-03-02T00:00:00+00:00")
 
     monkeypatch.setattr(main, "_AGGREGATE_SQL", main._AGGREGATE_SQL.replace("FLOOR(", "FLOOR_ABSENTE("))
-    with caplog.at_level(logging.WARNING, logger="maison-temp"):
+    with caplog.at_level(logging.WARNING, logger="uvicorn.error"):
         data = _agg_endpoint(client, debut, fin)
     assert data == _agg_reference(debut, fin, 43200)
     assert any("repli" in m for m in caplog.messages), (
@@ -1399,3 +1497,28 @@ def test_agregation_se_replie_si_la_requete_ne_s_execute_pas(client, monkeypatch
     # Témoin : une période non agrégée (24 h) ne passe pas par cette requête et
     # n'aurait donc rien signalé — c'est ce qui rendrait la panne difficile à voir.
     assert client.get("/api/releves/" + _AGG_SLUG, params={"period": "24h"}).status_code == 200
+
+
+def test_agregation_sql_ne_melange_pas_les_sondes(client):
+    """Une autre sonde présente dans la même fenêtre ne doit pas entrer dans la
+    moyenne.
+
+    Les autres tests d'agrégation ouvrent des fenêtres vierges pour **toutes**
+    les sondes — leurs données vivent en 2026, les miennes en 2027 et après.
+    Retirer `sonde_id = ?` du `WHERE` passait donc inaperçu : il n'y avait rien
+    à mélanger. Ce test fournit de quoi.
+    """
+    debut, fin = "2029-07-01T00:00:00+00:00", "2029-07-26T00:00:00+00:00"
+    _agg_fenetre_vierge(debut, fin)
+    _insert_releve(_AGG_SLUG, 10.0, 30.0, "2029-07-01T00:00:00+00:00")
+    _insert_releve("salon", 90.0, 90.0, "2029-07-01T01:00:00+00:00")
+    _insert_releve("chambre-jade", -90.0, 10.0, "2029-07-01T02:00:00+00:00")
+
+    data = _agg_endpoint(client, debut, fin)
+    assert data[0][:2] == (10.0, 30.0), "seules les lignes de la sonde demandée comptent"
+    assert data == _agg_reference(debut, fin, 43200)
+
+    # Et le voisin garde bien les siennes : le filtre ne doit pas non plus les perdre.
+    voisin = client.get("/api/releves/salon", params={"from": debut, "to": fin})
+    assert voisin.status_code == 200
+    assert [r["temperature"] for r in voisin.json()] == [90.0]

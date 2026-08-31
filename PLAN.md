@@ -1,6 +1,6 @@
 # PLAN.md — maison-temp
 
-**Version** : 1.22
+**Version** : 1.23
 **Date** : 2026-08-31
 **Référence** : SPEC.md v1.9
 
@@ -1059,6 +1059,22 @@ posé par la décision 23).
   produit un test qui rougit à la prochaine montée du système, avec un message
   ne pointant vers rien. Ce qui reste défendu : appartenance de chaque ligne à
   son bucket, grandeurs absentes et non finies, politique d'arrondi
+- **Le `try/except` a rendu la suite de tests aveugle, et il a fallu un second
+  passage pour le voir.** C'est le bon comportement en production et le piège
+  parfait au test : toute panne du chemin SQL retombe sur `_aggregate`, or c'est
+  à `_aggregate` que le test différentiel compare l'endpoint — il passe alors
+  **par construction**. Mesuré en rendant `unixepoch` inconnu, chemin SQL
+  entièrement mort : **87 tests sur 88 restaient verts**, et le seul rouge était
+  celui dont la docstring dit « si cet écart disparaît, retirer ce test ». Une
+  fixture `autouse` espionne désormais `main._aggregate` et fait échouer tout
+  test qui passe par le repli sans l'avoir déclaré (fixture `repli_attendu`) ;
+  la même mutation produit maintenant 15 rouges. Le garde-fou s'adosse à
+  l'espion et non au journal, pour rester valable si ces lignes étaient un jour
+  étranglées
+- **La leçon est la même que pour les harnais** : un correctif qui rend le
+  système plus tolérant rend la suite de tests moins sensible, et les deux
+  effets ne se voient pas au même endroit. Il faut vérifier qu'un test **échoue**
+  quand la fonctionnalité disparaît, pas seulement qu'il passe quand elle est là
 - **Le repli ne rattrapait pas l'échec de la requête, et il était silencieux.**
   Deux défauts relevés en review, corrigés :
   - un `try/except sqlite3.OperationalError` entoure désormais la requête. Sans
@@ -1066,9 +1082,15 @@ posé par la décision 23).
     toutes les lectures agrégées — et seulement à elles, les périodes de 12 h et
     24 h continuant de répondre 200, ce qui rendait la panne d'autant plus
     difficile à lire ;
-  - les deux motifs de repli sont **journalisés**. Le repli refait le parcours
-    Python : il rend à la boucle exactement le blocage que cette décision
-    supprime. Mesuré au palier 2027, **une seule ligne mal datée sur 28 916**
+  - les deux motifs de repli sont **journalisés**, sur `uvicorn.error` et non
+    sur un logger à nous : uvicorn configure ce nom, donc le niveau apparaît
+    dans la ligne. Un logger non configuré remonte au logger racine, qu'uvicorn
+    ne touche pas, et finit sur le `lastResort` de la bibliothèque standard —
+    message nu, sans niveau (vérifié sous uvicorn réel). La priorité journald
+    vient du flux et non du texte : ni l'un ni l'autre ne remonte à
+    `journalctl -p warning`, le marqueur cherchable est le mot « repli ».
+    Le repli refait le parcours Python : il rend à la boucle exactement le
+    blocage que cette décision supprime. Mesuré au palier 2027, **une seule ligne mal datée sur 28 916**
     fait passer le retard de boucle de **1,70 ms à 73,80 ms**, et la requête de
     47,7 ms à **136,9 ms** — plus lent que l'implémentation d'avant (103,6 ms),
     les deux requêtes tournant. Un tel repli doit se voir dans le journal
@@ -1090,11 +1112,22 @@ posé par la décision 23).
     sur uvicorn mono-worker, base au palier de 2027 : latence médiane du webhook
     **1 535 ms avant, 58 ms après** (max 2 039 → 63 ms), et le débit de lectures
     double au passage (107 → 204 requêtes écoulées)
-  - **88 tests backend** (11 ajoutés), **54 tests frontend** inchangés. Les tests
-    ajoutés ont été soumis à sept mutations de l'implémentation — retirer le
-    filtre de finitude, le `HAVING`, le `FLOOR`, l'un ou l'autre repli, l'une ou
-    l'autre journalisation, ou pousser l'arrondi en SQL : **chacune est
-    détectée**
+  - **90 tests backend** (13 ajoutés), **54 tests frontend** inchangés, soumis à
+    **onze mutations** de l'implémentation et du miroir de test — chemin SQL
+    entièrement mort, filtre de finitude, `HAVING`, `FLOOR`, l'un ou l'autre
+    repli, l'une ou l'autre journalisation, arrondi poussé en SQL, filtrage par
+    sonde, sommation paramétrée du miroir, plancher du miroir : **toutes
+    détectées**. Trois de ces mutations ne l'étaient pas au passage précédent
+  - **Trois tests ne prouvaient rien**, relevés en review et corrigés : la
+    fixture de fidélité du miroir n'avait aucun bucket à plus d'une valeur par
+    grandeur, donc le paramètre de sommation n'y était jamais exercé ; la
+    branche tolérante du test différentiel n'était empruntée sur **aucune** des
+    342 valeurs du jeu aléatoire, donc la tolérance elle-même n'était pas
+    testée ; et aucune fenêtre de test ne contenait deux sondes, donc retirer
+    `sonde_id` du `WHERE` passait inaperçu. Un cas déterministe tiré de la forme
+    d'une descente de température réelle — `[28,1 … 25,6]`, moyenne exacte
+    26,85 — sert désormais de repère : 26,8 sous SQLite < 3.44, 26,9 à partir de
+    la 3.44
 - **Un harnais de fuzz faux, et ce qu'il enseigne.** La première rédaction
   annonçait « 0 divergence sur 15 000 jeux, 6 sur 15 000 en sous-seconde » et
   présentait ces jeux comme exerçant les frontières de bucket. Ils ne les
@@ -1110,6 +1143,19 @@ posé par la décision 23).
     `GROUP BY` de SQLite passe par un B-tree temporaire qui rend déjà les
     groupes triés. Coïncidence d'implémentation, pas garantie ; l'`ORDER BY`
     reste, et aucun test ne peut aujourd'hui le défendre
+  - **une ligne de journal par requête, sans étranglement.** Si le repli
+    s'installe — une SQLite sans fonctions mathématiques, ou une ligne mal
+    datée qui reste en base — chaque lecture agrégée écrit sa ligne, soit au
+    plafond de la limitation de débit (10 r/s) de l'ordre de 100 Mo/jour.
+    Étrangler masquerait la panne ; ne pas étrangler la rend coûteuse tant que
+    `logrotate` n'est pas installé (issue #57). Laissé bruyant délibérément :
+    ce repli n'est pas censé durer
+  - **`try/except sqlite3.OperationalError` est un peu large** : il couvre
+    aussi « database is locked », donc un verrou pris entre les deux requêtes
+    coûte deux attentes au lieu d'une pour le même 500. Conservé large :
+    manquer un 500 sur un endpoint public coûte plus cher qu'une seconde
+    attente sur un cas qui ne se produit pas ici (un seul écrivain). Le journal
+    nomme la cause, il n'induit donc pas en erreur
   - **`_now_iso()` n'est pas monotone par rapport aux rowid.** Il est évalué
     avant l'`await db.execute`, donc deux webhooks concurrents peuvent
     s'insérer dans l'ordre inverse de leurs horodatages : **4 inversions**

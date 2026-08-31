@@ -34,7 +34,15 @@ METEO_URL = (
 _meteo_cache: dict = {"data": None, "expires_at": None}
 _meteo_lock = asyncio.Lock()
 
-logger = logging.getLogger("maison-temp")
+# `uvicorn.error` et non un logger à nous : uvicorn configure ce nom avec son
+# formateur, donc le niveau apparaît dans la ligne. Un logger non configuré
+# remonte au logger racine, qu'uvicorn ne touche pas, et finit sur le
+# `lastResort` de la bibliothèque standard — message nu, sans niveau (vérifié
+# sous uvicorn réel). Le journal systemd reçoit les deux, mais seul le premier
+# se relit. La priorité journald, elle, vient du flux et non du texte : ni l'un
+# ni l'autre ne remonte à `journalctl -p warning`, le marqueur cherchable est
+# le mot « repli ».
+logger = logging.getLogger("uvicorn.error")
 
 api_key_header = APIKeyHeader(name="X-API-Key", auto_error=True)
 
