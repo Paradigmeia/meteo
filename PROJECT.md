@@ -200,6 +200,18 @@ Légende : 🔲 À faire · 🔄 En cours · ✅ Livré · ⚠️ Dette techniqu
       aucun faux positif une fois celles-ci écartées. Réserve consignée dans
       l'issue : le cockpit n'a aucune notification sortante, et un voyant que
       personne ne regarde vaut ce que vaut l'absence de voyant
+    - [Paradigmeia/dashboard#131](https://github.com/Paradigmeia/dashboard/issues/131)
+      : ouverte en documentant la précédente. Le cockpit a bien un voyant de
+      fraîcheur de capteur — mais pointé sur une sonde ESP8266 morte depuis le
+      2026-04-09, celle que ce projet a remplacée le 2026-05-29, et il n'est
+      affiché nulle part. **Mesure utile pour nous** : les écarts entre deux
+      écritures valent, depuis le 1er juillet, une médiane de 25 min et un
+      maximum de 242 min sur `exterieur`, 120 et 242 sur `salon` — le Shelly
+      émet sur changement, sinon toutes les 2 h. Conséquence : une surveillance
+      de la **fraîcheur des relevés** n'aurait **pas** vu l'arrêt du 31/08, deux
+      heures de panne étant indiscernables de deux heures de calme. Surveiller
+      la donnée et surveiller le service sont deux angles complémentaires, et
+      aucun ne remplace l'autre
 
 ### 2026-08-30 — Issue #38 : remontée des dépendances Python
 
