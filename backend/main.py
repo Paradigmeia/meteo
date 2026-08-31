@@ -7,7 +7,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from collections import defaultdict
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
+import logging
 import secrets
+import sqlite3
 import httpx
 import asyncio
 import math
@@ -31,6 +33,8 @@ METEO_URL = (
 
 _meteo_cache: dict = {"data": None, "expires_at": None}
 _meteo_lock = asyncio.Lock()
+
+logger = logging.getLogger("maison-temp")
 
 api_key_header = APIKeyHeader(name="X-API-Key", auto_error=True)
 
@@ -397,31 +401,70 @@ async def _aggregate_sql(db, sonde_id, since, until, bucket_seconds):
     20,2 en Python et 20,3 en SQL. Il n'y a au plus que quelques centaines de
     buckets, cet arrondi-là ne coûte rien à la boucle.
 
-    Le repli couvre les lignes que **SQLite** ne sait pas dater alors que
-    `datetime.fromisoformat` les accepte — un décalage sans deux-points
-    (`2026-08-31T10:23:45+0000`, ce que produit `strftime('%z')`), une virgule
-    décimale, un `t` minuscule. `unixepoch` rend NULL, ces lignes se retrouvent
-    dans un groupe de clé NULL — que `ORDER BY` place en tête — et `_aggregate`
-    reprend la main plutôt que de laisser passer un résultat amputé. Aucune
-    ligne de ce genre ne peut naître de l'application : `_now_iso` écrit
-    toujours le même format. C'est un garde-fou contre une écriture directe en
-    base, sur un endpoint public et non authentifié.
+    Deux motifs de repli, tous deux journalisés — le repli refait le parcours
+    Python et rend donc la boucle d'événements exactement au blocage que cette
+    fonction existe pour supprimer. Il ne doit pas être silencieux :
 
-    Écart connu et assumé : SQLite date à la **milliseconde** et arrondit au
-    plus proche, donc une sous-seconde ≥ 0,9995 s est lue comme la seconde
-    suivante. Quand cette seconde est une frontière de bucket, la ligne bascule
-    dans le bucket voisin — c'est la seule divergence qui subsiste face à
-    `_aggregate`, et elle tient dans les 500 dernières microsecondes précédant
-    une frontière. Sur les 8 188 relevés de production, une seule ligne porte
-    une telle sous-seconde et aucune ne tombe sur une frontière. Cf.
-    `test_agregation_sql_ecart_connu_sous_la_milliseconde`.
+    - **SQLite ne sait pas dater une ligne** là où `datetime.fromisoformat` y
+      arrive : décalage sans deux-points (`+0000`, ce que produit
+      `strftime('%z')`), virgule décimale, `t` minuscule. `unixepoch` rend NULL,
+      ces lignes forment un groupe de clé NULL que `ORDER BY` place en tête.
+      Une seule ligne de ce genre dans la plage suffit à faire retomber toute la
+      requête sur le parcours Python ;
+    - **la requête ne s'exécute pas** (`OperationalError`), cf. le garde
+      ci-dessous.
+
+    Aucune ligne du premier genre ne peut naître de l'application : `_now_iso`
+    écrit toujours le même format. C'est un garde-fou contre une écriture
+    directe en base, sur un endpoint public et non authentifié.
+
+    Deux écarts connus face à `_aggregate`, tous deux assumés :
+
+    - **la milliseconde.** SQLite date à la milliseconde et arrondit au plus
+      proche, donc une sous-seconde ≥ 0,9995 s est lue comme la seconde
+      suivante ; si cette seconde est une frontière de bucket, la ligne bascule
+      dans le bucket voisin. Borné aux 500 dernières microsecondes avant une
+      frontière. Sur les 8 188 relevés de production, une seule ligne porte une
+      telle sous-seconde et aucune ne tombe sur une frontière. Cf.
+      `test_agregation_sql_ecart_connu_sous_la_milliseconde` ;
+    - **la sommation flottante.** `sum()` de Python accumule naïvement ; SQLite
+      fait de même **jusqu'à la 3.43**, mais somme en Kahan-Babuška-Neumaier à
+      partir de la **3.44**, ce qui rend une moyenne exactement arrondie. Les
+      deux ne diffèrent que d'un ULP, mais un ULP suffit à faire basculer
+      l'arrondi au dixième : mesuré sur la base de production, **17 buckets sur
+      575** au pas de 3 h changent d'un dixième entre SQLite 3.40.1 et 3.51.1.
+      Aucune implémentation Python unique ne peut coller aux deux versions —
+      `math.fsum` colle exactement à la 3.51.1 et diverge de la 3.40.1 sur ces
+      mêmes 17 buckets. `_aggregate` garde donc `sum()`, qui est ce que la
+      production calcule aujourd'hui, et le test différentiel accepte l'une ou
+      l'autre des deux valeurs plutôt que d'exiger une égalité qui ne survivrait
+      pas à une montée de Debian. Cf. `test_agregation_sql_identique_au_python`.
     """
-    async with db.execute(
-        _AGGREGATE_SQL,
-        (float(bucket_seconds), bucket_seconds, sonde_id, since, until),
-    ) as cur:
-        rows = await cur.fetchall()
+    try:
+        async with db.execute(
+            _AGGREGATE_SQL,
+            (float(bucket_seconds), bucket_seconds, sonde_id, since, until),
+        ) as cur:
+            rows = await cur.fetchall()
+    except sqlite3.OperationalError as exc:
+        # Sans ce garde, une lecture agrégée répond 500 sur un endpoint public.
+        # Le cas concret n'est pas théorique : `FLOOR()` fait partie des
+        # fonctions mathématiques, **optionnelles à la compilation** de SQLite
+        # (`SQLITE_ENABLE_MATH_FUNCTIONS`). Une bibliothèque assez récente pour
+        # `unixepoch()` mais compilée sans elles ferait échouer toutes les
+        # lectures agrégées, et seulement celles-là — les périodes de 12 h et
+        # 24 h, qui ne passent pas par ici, continueraient de répondre 200.
+        logger.warning(
+            "agrégation SQL indisponible (%s) : repli sur le parcours Python, "
+            "qui bloque la boucle d'événements (issue #67)", exc,
+        )
+        return None
     if rows and rows[0][0] is None:
+        logger.warning(
+            "sonde_id=%s : au moins une ligne de la plage porte un `recu_le` que "
+            "SQLite ne sait pas dater ; repli sur le parcours Python, qui bloque "
+            "la boucle d'événements (issue #67)", sonde_id,
+        )
         return None
     return [
         ReleverOut(

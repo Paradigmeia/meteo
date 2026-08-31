@@ -1,6 +1,6 @@
 # PLAN.md — maison-temp
 
-**Version** : 1.21
+**Version** : 1.22
 **Date** : 2026-08-31
 **Référence** : SPEC.md v1.9
 
@@ -80,11 +80,19 @@ resynchronisé ici.
 
 **SQLite** : la bibliothèque du système, pas un paquet Python — `aiosqlite`
 n'est qu'une enveloppe autour du module `sqlite3` de la bibliothèque standard.
-**Version minimale 3.38**, pour la fonction `unixepoch()` sur laquelle repose
-l'agrégation (décision 24) ; `FLOOR()`, du même calcul, existe depuis la 3.35.
-Le serveur est en 3.40.1 (Debian 12). Une version antérieure ferait échouer
-toute lecture agrégée — et ferait tomber les tests de `test_main.py`, qui est
-le premier endroit où on s'en apercevrait.
+**Version minimale 3.38**, pour `unixepoch()`, sur laquelle repose l'agrégation
+(décision 24). `FLOOR()`, du même calcul, existe depuis la 3.35 — mais **la
+version ne suffit pas** : `FLOOR()` fait partie des fonctions mathématiques,
+**optionnelles à la compilation** (`SQLITE_ENABLE_MATH_FUNCTIONS`). Une
+bibliothèque récente mais compilée sans elles ferait échouer les lectures
+agrégées, et seulement celles-là. Le service ne répond plus 500 dans ce cas : il
+se replie sur le parcours Python et le journalise (décision 24).
+
+Le serveur est en 3.40.1 (Debian 12). **La version de SQLite change les valeurs
+rendues** : à partir de la 3.44, `avg()` somme en Kahan-Babuška-Neumaier et non
+plus naïvement, ce qui décale l'arrondi au dixième sur quelques buckets
+(décision 24). Debian 13 embarque la 3.46 : la montée du système est donc un
+changement de sortie, pas seulement de dépendance.
 
 **Frontend (Node)**
 ```json
@@ -1024,29 +1032,95 @@ posé par la décision 23).
   l'espérance est d'environ une ligne concernée tous les 750 000 ans, pour une
   conséquence qui serait qu'un relevé compte dans le bucket d'à côté. Épinglé
   par un test, pour que ce soit une propriété connue et non du folklore
+- **La version de SQLite change les valeurs rendues, et aucune implémentation
+  Python ne peut coller aux deux.** `sum()` de Python accumule naïvement ;
+  SQLite fait de même **jusqu'à la 3.43** et somme en
+  **Kahan-Babuška-Neumaier à partir de la 3.44**, ce qui rend une moyenne
+  exactement arrondie. Un ULP d'écart, mais un ULP suffit à faire basculer
+  l'arrondi au dixième. Mesuré sur la base de production, sonde `exterieur`,
+  face à `_aggregate` :
+
+  | Pas | Buckets | Divergents sous SQLite 3.40.1 | sous 3.51.1 |
+  |---|---|---|---|
+  | 3 h | 575 | 0 | **17** |
+  | 12 h | 144 | 0 | 1 |
+  | 24 h | 73 | 0 | 1 |
+
+  `math.fsum` colle **exactement** à la 3.51.1 (0 divergence partout) et diverge
+  de la 3.40.1 sur ces mêmes buckets : le choix est entre coller au présent ou à
+  l'avenir, pas entre juste et faux. `_aggregate` garde donc `sum()`, qui est ce
+  que la production calcule aujourd'hui — passer `_aggregate` à `fsum` aurait
+  changé la sortie actuelle sur 11 buckets sur 575, hors du périmètre de cette
+  issue. **Debian 13 embarque la 3.46** : la montée du système décalera ces
+  quelques dixièmes, et aucune des deux valeurs ne sera fausse
+- **Le test différentiel exige donc le découpage, pas la sommation.** Les clés de
+  bucket sont comparées strictement ; chaque valeur doit valoir celle de la
+  somme naïve **ou** celle de la somme exacte. Exiger l'égalité stricte aurait
+  produit un test qui rougit à la prochaine montée du système, avec un message
+  ne pointant vers rien. Ce qui reste défendu : appartenance de chaque ligne à
+  son bucket, grandeurs absentes et non finies, politique d'arrondi
+- **Le repli ne rattrapait pas l'échec de la requête, et il était silencieux.**
+  Deux défauts relevés en review, corrigés :
+  - un `try/except sqlite3.OperationalError` entoure désormais la requête. Sans
+    lui, une SQLite sans fonctions mathématiques (cf. §2) faisait répondre 500 à
+    toutes les lectures agrégées — et seulement à elles, les périodes de 12 h et
+    24 h continuant de répondre 200, ce qui rendait la panne d'autant plus
+    difficile à lire ;
+  - les deux motifs de repli sont **journalisés**. Le repli refait le parcours
+    Python : il rend à la boucle exactement le blocage que cette décision
+    supprime. Mesuré au palier 2027, **une seule ligne mal datée sur 28 916**
+    fait passer le retard de boucle de **1,70 ms à 73,80 ms**, et la requête de
+    47,7 ms à **136,9 ms** — plus lent que l'implémentation d'avant (103,6 ms),
+    les deux requêtes tournant. Un tel repli doit se voir dans le journal
 - **Vérifications** :
   - **40 requêtes sur une copie de la base de production** — quatre sondes ×
     six périodes × quatre plages libres — servies par les deux implémentations
     côte à côte : **40 réponses identiques octet pour octet** (22 non vides,
-    71 486 octets)
+    71 486 octets). Sous SQLite 3.40.1 ; cf. la réserve de version ci-dessus
   - **fuzz différentiel** sur le code livré, jeux hostiles (grandeurs absentes,
     ±inf, NaN, lignes collées aux frontières, quatre tailles de bucket) :
-    **0 divergence sur 15 000 jeux** à la seconde entière, **6 sur 15 000** en
-    forçant des sous-secondes à 999 999 µs pile sur des frontières — toutes de
-    l'écart milliseconde ci-dessus. Antérieur à 1970 : 0 sur 3 000
+    **0 divergence sur 12 000 jeux** — trois époques, dont une antérieure à 1970
+    qui exerce le plancher — dès lors que les sous-secondes restent sous
+    0,9995 s. En autorisant 999 999 µs, **3 712 jeux sur 4 000** divergent :
+    c'est l'écart milliseconde, et rien d'autre. La bascule entre ces deux
+    régimes tient au seul seuil de 0,9995 s, ce qui **démontre** que cet écart
+    est la seule classe de divergence, là où la première rédaction se contentait
+    de l'affirmer
   - **le webhook pendant une inondation de lectures au plafond**, service réel
     sur uvicorn mono-worker, base au palier de 2027 : latence médiane du webhook
     **1 535 ms avant, 58 ms après** (max 2 039 → 63 ms), et le débit de lectures
     double au passage (107 → 204 requêtes écoulées)
-  - **86 tests backend** (9 ajoutés), **54 tests frontend** inchangés. Les tests
-    ajoutés ont été soumis à des mutations de l'implémentation : retirer le
-    filtre de finitude, le `HAVING`, le `FLOOR`, le repli, ou pousser l'arrondi
-    en SQL — chacune est détectée
-- **Signalé, non traité** : retirer l'`ORDER BY bucket ASC` ne fait tomber aucun
-  test, parce que le `GROUP BY` de SQLite passe par un B-tree temporaire qui rend
-  déjà les groupes triés. C'est une coïncidence d'implémentation, pas une
-  garantie ; l'`ORDER BY` reste, et aucun test ne peut aujourd'hui le défendre
-- **Dépendance nouvelle** : `unixepoch()` demande SQLite ≥ 3.38 (cf. §2)
+  - **88 tests backend** (11 ajoutés), **54 tests frontend** inchangés. Les tests
+    ajoutés ont été soumis à sept mutations de l'implémentation — retirer le
+    filtre de finitude, le `HAVING`, le `FLOOR`, l'un ou l'autre repli, l'une ou
+    l'autre journalisation, ou pousser l'arrondi en SQL : **chacune est
+    détectée**
+- **Un harnais de fuzz faux, et ce qu'il enseigne.** La première rédaction
+  annonçait « 0 divergence sur 15 000 jeux, 6 sur 15 000 en sous-seconde » et
+  présentait ces jeux comme exerçant les frontières de bucket. Ils ne les
+  exerçaient pas : la base des horodatages (`1780000000`) n'est un multiple
+  d'**aucune** des quatre tailles de bucket, donc les cales `0`, `±1`, `b-1`
+  censées coller aux frontières n'en approchaient aucune. Même défaut dans le
+  test différentiel, dont la base était alignée sur trois tailles sur quatre.
+  C'est le **troisième** harnais faux de ce projet à donner un résultat
+  rassurant (cf. décision 23) : le réflexe à prendre est de vérifier qu'un
+  harnais **échoue** quand il doit échouer avant de croire qu'il réussit
+- **Signalé, non traité** :
+  - retirer l'`ORDER BY bucket ASC` ne fait tomber aucun test, parce que le
+    `GROUP BY` de SQLite passe par un B-tree temporaire qui rend déjà les
+    groupes triés. Coïncidence d'implémentation, pas garantie ; l'`ORDER BY`
+    reste, et aucun test ne peut aujourd'hui le défendre
+  - **`_now_iso()` n'est pas monotone par rapport aux rowid.** Il est évalué
+    avant l'`await db.execute`, donc deux webhooks concurrents peuvent
+    s'insérer dans l'ordre inverse de leurs horodatages : **4 inversions**
+    relevées dans la base de production. La première rédaction justifiait
+    l'égalité des ordres d'accumulation par « les lignes ne sont qu'ajoutées et
+    `_now_iso` est monotone » — c'est faux. La conclusion tient pour une autre
+    raison : le plan de requête passe par `idx_releves_sonde_date`, donc le
+    balayage est en ordre de `recu_le`, quel que soit l'ordre des rowid
+    (vérifié en forçant `NOT INDEXED` : 0 bucket divergent)
+- **Dépendances nouvelles** : SQLite ≥ 3.38 **et compilé avec les fonctions
+  mathématiques** (cf. §2)
 
 ---
 

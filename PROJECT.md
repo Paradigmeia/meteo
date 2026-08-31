@@ -59,25 +59,58 @@ Légende : 🔲 À faire · 🔄 En cours · ✅ Livré · ⚠️ Dette techniqu
   une frontière de bucket fait basculer la ligne. Sur les 8 188 relevés de
   production, une seule ligne porte une telle sous-seconde et aucune n'est sur
   une frontière — espérance d'environ un cas tous les 750 000 ans
+- **Corrigé après review adversariale**, quatre défauts réels :
+  - **la version de SQLite change les valeurs rendues.** À partir de la 3.44,
+    `avg()` somme en Kahan-Babuška-Neumaier et non plus naïvement — un ULP, qui
+    suffit à faire basculer l'arrondi au dixième. Sur la base de production,
+    **17 buckets sur 575** au pas de 3 h changent entre 3.40.1 (le serveur) et
+    3.51.1, et **Debian 13 embarque la 3.46**. Aucune implémentation Python ne
+    peut coller aux deux versions : `math.fsum` colle exactement à la 3.51.1 et
+    diverge de la 3.40.1 sur ces mêmes buckets. Le test différentiel exige donc
+    le **découpage** strictement, et accepte pour chaque valeur la somme naïve
+    ou la somme exacte — exiger l'égalité stricte, c'était écrire un test qui
+    rougit à la prochaine montée du système pour une différence dont aucune des
+    deux valeurs n'est fausse
+  - **le repli ne rattrapait pas l'échec de la requête.** `FLOOR()` relève des
+    fonctions mathématiques, **optionnelles à la compilation** de SQLite : une
+    bibliothèque assez récente pour `unixepoch()` mais compilée sans elles
+    faisait répondre **500** à toutes les lectures agrégées, et seulement à
+    elles. Un `try/except` s'en charge désormais
+  - **le repli était silencieux, et il annule tout le gain.** Il refait le
+    parcours Python : mesuré au palier 2027, **une seule ligne mal datée sur
+    28 916** ramène le retard de boucle de 1,70 ms à **73,80 ms**, et la requête
+    à 136,9 ms — plus lent que l'implémentation d'avant, les deux requêtes
+    tournant. Les deux motifs de repli sont maintenant journalisés
+  - **mon harnais de fuzz n'exerçait pas les frontières de bucket** qu'il
+    prétendait exercer : la base des horodatages n'était un multiple d'aucune
+    des quatre tailles de bucket, donc les cales censées coller aux frontières
+    n'en approchaient aucune. Même défaut dans le test différentiel. C'est le
+    **troisième** harnais faux de ce projet à donner un résultat rassurant
 - **Vérifié** : 40 requêtes sur une copie de la base de production (4 sondes ×
   6 périodes × 4 plages libres) servies par les deux implémentations côte à
-  côte, **40 réponses identiques octet pour octet** ; fuzz différentiel
-  **0 divergence sur 15 000 jeux** à la seconde entière ; **86 tests backend**
-  (9 ajoutés), 54 frontend inchangés. Les tests ajoutés résistent à la mutation :
-  retirer le filtre de finitude, le `HAVING`, le `FLOOR`, le repli, ou pousser
-  l'arrondi en SQL — chacune est détectée
-- **Mon premier harnais de fuzz était faux** et donnait 17 % de divergences : la
-  table en mémoire n'avait pas d'index, donc SQLite lisait en ordre de rowid
-  quand Python recevait les lignes triées par `recu_le`. Deux ordres de sommation
-  flottante, donc des moyennes qui basculent d'un dixième à l'arrondi. C'est le
-  harnais qui était en cause, pas le code
-- **Signalé, non traité** : retirer l'`ORDER BY bucket ASC` ne fait tomber aucun
-  test — le `GROUP BY` de SQLite passe par un B-tree temporaire qui rend déjà les
-  groupes triés. Coïncidence d'implémentation, pas garantie
-- **PLAN.md v1.20 → v1.21** (décision 24 ; déclencheur de la décision 23 marqué
+  côte, **40 réponses identiques octet pour octet** (sous SQLite 3.40.1) ; fuzz
+  différentiel réécrit avec des bases réellement alignées, **0 divergence sur
+  12 000 jeux** sur trois époques dont une antérieure à 1970, tant que les
+  sous-secondes restent sous 0,9995 s — et 3 712 sur 4 000 dès qu'on autorise
+  999 999 µs, ce qui **démontre** que l'écart milliseconde est la seule classe
+  de divergence au lieu de l'affirmer ; **88 tests backend** (11 ajoutés), 54
+  frontend inchangés, et **sept mutations de l'implémentation, toutes détectées**
+- **Signalé, non traité** :
+  - retirer l'`ORDER BY bucket ASC` ne fait tomber aucun test — le `GROUP BY` de
+    SQLite passe par un B-tree temporaire qui rend déjà les groupes triés.
+    Coïncidence d'implémentation, pas garantie
+  - **`_now_iso()` n'est pas monotone par rapport aux rowid** : il est évalué
+    avant l'`await`, donc deux webhooks concurrents peuvent s'insérer dans
+    l'ordre inverse de leurs horodatages — **4 inversions** en base de
+    production. J'avais justifié l'égalité des ordres d'accumulation par cette
+    monotonie ; c'était faux. La conclusion tient pour une autre raison : le
+    plan passe par `idx_releves_sonde_date`, donc le balayage est en ordre de
+    `recu_le` (vérifié en forçant `NOT INDEXED`)
+- **PLAN.md v1.20 → v1.22** (décision 24 ; déclencheur de la décision 23 marqué
   atteint et traité ; §2 Dépendances resynchronisé avec `requirements.txt`, resté
-  sur les versions d'avant #38, et plancher SQLite ≥ 3.38 consigné). SPEC.md
-  inchangée
+  sur les versions d'avant #38, plancher SQLite ≥ 3.38 **compilé avec les
+  fonctions mathématiques**, et réserve sur la version qui change les valeurs).
+  SPEC.md inchangée
 - **Non déployé** : reste à faire (`git pull` dans `/home/debian/meteo`, puis
   `systemctl restart maison-temp`)
 
