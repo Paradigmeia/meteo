@@ -182,8 +182,24 @@ Légende : 🔲 À faire · 🔄 En cours · ✅ Livré · ⚠️ Dette techniqu
     moyenne
   - **rien ne surveille ce service.** Deux heures d'arrêt n'ont produit aucune
     alerte, et il n'a été relancé que parce qu'un déploiement passait par là.
-    À traiter séparément : `Restart=always` est un correctif d'une ligne, la
-    supervision en est un autre
+    `systemctl --failed` affichait **0 unité** pendant tout l'arrêt : une sortie
+    sur TERM propre laisse `inactive`, pas `failed`
+  - **deux issues ouvertes**, nécessaires toutes les deux et aucune ne
+    remplaçant l'autre — `Restart=always` traite la panne qui se répare seule,
+    la supervision traite celle qui ne se répare pas :
+    - #71 (ce dépôt) : `Restart=always`, avec le piège à ne pas manquer au
+      passage — `RestartSec=5` et la fenêtre `StartLimitIntervalSec=10s` par
+      défaut sont incompatibles, la limite ne se déclenche jamais, et passer à
+      `always` sans y toucher échangerait une panne visible contre une boucle
+      invisible
+    - [Paradigmeia/dashboard#130](https://github.com/Paradigmeia/dashboard/issues/130)
+      : supervision depuis le cockpit. `MONITORED_SERVICES=nginx` en production,
+      un seul service, et `maison-temp` n'y est pas. Mesuré à cette occasion
+      qu'une énumération des unités activées-mais-inactives ne remonterait que
+      **4 unités** sur cette machine, toutes `oneshot` ou templates — donc
+      aucun faux positif une fois celles-ci écartées. Réserve consignée dans
+      l'issue : le cockpit n'a aucune notification sortante, et un voyant que
+      personne ne regarde vaut ce que vaut l'absence de voyant
 
 ### 2026-08-30 — Issue #38 : remontée des dépendances Python
 
