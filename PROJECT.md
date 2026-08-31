@@ -151,7 +151,11 @@ Légende : 🔲 À faire · 🔄 En cours · ✅ Livré · ⚠️ Dette techniqu
   seule dépendance nouvelle, et celle dont l'absence est silencieuse à
   l'installation. Et vérifié après : sur la base de production vivante, les 8
   combinaisons sonde × période rendent **exactement** ce que `_aggregate` aurait
-  rendu (454 buckets comparés)
+  rendu (454 buckets comparés). **Chaîne d'écriture confirmée sur un relevé
+  réel** : `salon` a émis à 16:40:45 et 16:40:47 — ses deux events, humidité
+  puis température — les deux lignes sont en base et `/api/sondes` les remonte,
+  sans traceback ni repli. C'est le dernier point de la DoD de #67 vérifié en
+  production et non en banc d'essai
 - **Le service était arrêté depuis 2 h 10 au moment du déploiement**, et rien ne
   l'avait signalé. Découvert en préparant le déploiement, pas par une alerte :
   - arrêté le 2026-08-31 à **14:18:36 UTC** par un SIGTERM, sortie propre après
