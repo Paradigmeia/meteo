@@ -9,7 +9,7 @@ function HourSlot({ hour, isNow }) {
   return (
     <div className={`hour-slot${isNow ? ' now' : ''}`}>
       <span className="hour-lbl">{label}</span>
-      <Icon name={icon} className="hour-icon" />
+      <Icon name={icon} className="hour-icon" label={wmoLabel(hour.weathercode)} />
       <span className="hour-temp">{Math.round(hour.temperature_2m)}°</span>
       {precip > 0
         ? <span className="hour-precip">{precip}%</span>
@@ -56,7 +56,7 @@ export default function MeteoCard({ meteo }) {
           <span className="meteo-cond">{wmoLabel(cur.weathercode)}</span>
           <div className="meteo-details">
             <span className="meteo-detail">
-              <Icon name="droplet" style={{ color: '#1D9E75' }} />
+              <Icon name="droplet" style={{ color: '#1D9E75' }} label="Humidité" />
               {cur.relative_humidity_2m}%
             </span>
             <span className="meteo-detail">
