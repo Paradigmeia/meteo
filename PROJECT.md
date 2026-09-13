@@ -28,6 +28,48 @@ Légende : 🔲 À faire · 🔄 En cours · ✅ Livré · ⚠️ Dette techniqu
 
 ## Changelog
 
+### 2026-09-13 — Issue #55 : les icônes porteuses d'information ont un nom accessible
+
+- **Cause** : depuis #51, toute icône sans prop `label` est rendue en
+  `aria-hidden`. C'est juste pour les icônes décoratives, mais à deux endroits
+  l'icône portait seule l'information : la condition météo des 24 créneaux
+  horaires (restitués `Maint. 22° ·`) et la grandeur des trois valeurs
+  d'humidité (restituées `63%`). Pas une régression : l'ancienne police n'était
+  pas annonçable non plus
+- **`MeteoCard.jsx`** : `label={wmoLabel(hour.weathercode)}` sur l'icône de
+  créneau, `label="Humidité"` sur la goutte du bloc « maintenant ».
+  **`SondeCard.jsx`** : `label="Humidité"` sur les gouttes des deux variantes.
+  Rien d'autre : les icônes décoratives restent masquées, le bruit étant aussi
+  un défaut
+- **Label porté par l'icône, pas par le conteneur** : un `aria-label` sur
+  `.sonde-hum` aurait avalé la valeur et le badge de retard qui vit dessous
+  (#43) — et un `aria-label` sur un `div` sans rôle est de toute façon interdit
+  en ARIA 1.2, ignoré par plusieurs lecteurs d'écran
+- **Vérifié en review** en calculant le nom accessible réel
+  (`dom-accessibility-api`) avant et après : `Maint.Pluie légère22°·`,
+  `Humidité63%`, et sur une carte dont l'humidité est en retard,
+  `Salon 21.0° Humidité55%il y a 5 h il y a 1 min` — le badge reste annoncé.
+  L'absence d'espace vient de jsdom, sans mise en page, et existait déjà avant
+- **Tests** : 59 frontend (5 ajoutés, dont un nouveau `MeteoCard.test.jsx`),
+  backend inchangé. **9 mutations sur 10 détectées** : retrait de chacun des
+  4 labels, label ajouté au vent, à la grande icône ou à « Demain », libellé
+  constant sur les créneaux, label déplacé sur le conteneur
+- **Signalé en review, non traité** :
+  - **le mutant survivant** : donner un nom à l'icône `wifi-off` de la variante
+    pleine largeur de `SondeCard` laisse les tests verts. Le contrôle « aucune
+    décorative ne gagne de nom » n'existe que pour `MeteoCard`, et la fixture
+    de `SondeCard` ne rend jamais une sonde hors ligne
+  - **la PR décrit sa méthode de relevé de deux façons incompatibles**
+    (Playwright dans la description, jsdom dans le compte rendu de session), et
+    le compte rendu décrit un environnement (WSL, npm absent) qui n'est pas
+    celui du serveur. Le résultat tient, recoupé indépendamment, mais ces
+    affirmations n'étaient pas vérifiables
+  - un code WMO inconnu est annoncé « Inconnu », repli existant de `wmoLabel`
+- **Reste ouvert dans la DoD** : l'écoute réelle avec VoiceOver ou NVDA, seule
+  à pouvoir trancher l'enchaînement « Humidité 63 % »
+- PR #72, mergée le 2026-09-13 (`2d4f5cd`). **Non déployé** : la production
+  est toujours sur `c52d0d6`. PLAN.md et SPEC.md inchangés
+
 ### 2026-08-31 — Issue #67 : l'agrégation sort de la boucle d'événements
 
 - **Ce qu'on protège, ce sont les relevés.** Le Shelly n'émet qu'une fois et ne
