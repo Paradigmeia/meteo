@@ -52,7 +52,7 @@ export default function SondeCard({ sonde, fullWidth, onClick }) {
                 </span>
                 {dr.humidite != null && (
                   <span className="sonde-hum">
-                    <Icon name="droplet" style={{ color: '#1D9E75' }} />{dr.humidite}%
+                    <Icon name="droplet" style={{ color: '#1D9E75' }} label="Humidité" />{dr.humidite}%
                     {stalehum && <span className="mesure-retard">{stalehum}</span>}
                   </span>
                 )}
@@ -75,7 +75,7 @@ export default function SondeCard({ sonde, fullWidth, onClick }) {
               </div>
               {dr.humidite != null && (
                 <div className="sonde-hum">
-                  <Icon name="droplet" style={{ color: '#1D9E75' }} />
+                  <Icon name="droplet" style={{ color: '#1D9E75' }} label="Humidité" />
                   {dr.humidite}%
                   {stalehum && <span className="mesure-retard">{stalehum}</span>}
                 </div>

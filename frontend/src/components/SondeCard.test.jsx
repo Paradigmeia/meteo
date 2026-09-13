@@ -101,6 +101,16 @@ describe.each([
     expect([marqueur('temp'), marqueur('hum')]).toEqual([null, null])
   })
 
+  it('donne un nom accessible à la goutte d\'humidité', () => {
+    // Issue #55 : avant, « 63 % » était annoncé sans sa grandeur. Le label est
+    // porté par l'icône (role="img" + aria-label) et pas par le conteneur :
+    // un aria-label sur `.sonde-hum` avalerait la valeur visible ET le badge
+    // de retard (#64) qui vit dessous.
+    carte({ temperature: 21, humidite: 55, recu_le: ilYA(MINUTE) }, props)
+    expect(screen.getByRole('img', { name: 'Humidité' })).toBeTruthy()
+    expect(document.querySelector('.sonde-hum').textContent).toContain('55%')
+  })
+
   it('affiche la card sans marqueur quand le backend ne renvoie pas les horodatages par grandeur', () => {
     // Le front est servi en statique : un bundle à jour peut tourner face à un
     // backend qui n'a pas encore redémarré, et `recu_le_temp` est un champ
