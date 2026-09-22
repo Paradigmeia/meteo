@@ -56,9 +56,19 @@ Légende : 🔲 À faire · 🔄 En cours · ✅ Livré · ⚠️ Dette techniqu
   constant sur les créneaux, label déplacé sur le conteneur
 - **Signalé en review, non traité** :
   - **le mutant survivant** : donner un nom à l'icône `wifi-off` de la variante
-    pleine largeur de `SondeCard` laisse les tests verts. Le contrôle « aucune
-    décorative ne gagne de nom » n'existe que pour `MeteoCard`, et la fixture
-    de `SondeCard` ne rend jamais une sonde hors ligne
+    pleine largeur de `SondeCard` laisse les tests verts. Ce n'est pas faute de
+    fixture : « garde le badge hors ligne quand plus rien ne remonte » rend une
+    sonde muette depuis 6 h, et le `describe.each` l'exécute sur les deux
+    variantes. Le mutant survit parce que le helper `horsLigne()` teste
+    `.offline-badge`, une classe du conteneur, et jamais l'icône elle-même
+  - **le vrai trou** : aucun test ne fixe l'état attendu de l'icône selon la
+    variante. Elle est décorative (`aria-hidden`) en pleine largeur, où le
+    texte « Hors ligne » porte déjà l'information, et nommée en compacte, où
+    elle est seule. Lui donner un label en pleine largeur ferait annoncer
+    « Hors ligne » deux fois : le mutant est une régression que les tests
+    laissent passer, pas un correctif à appliquer. Le contrôle « aucune
+    décorative ne gagne de nom » n'existe que pour `MeteoCard`. Le test
+    manquant fera l'objet d'une issue séparée
   - **la PR décrit sa méthode de relevé de deux façons incompatibles**
     (Playwright dans la description, jsdom dans le compte rendu de session), et
     le compte rendu décrit un environnement (WSL, npm absent) qui n'est pas
