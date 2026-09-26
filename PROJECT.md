@@ -33,11 +33,31 @@ Légende : 🔲 À faire · 🔄 En cours · ✅ Livré · ⚠️ Dette techniqu
 - **Ce qui change, ce sont les tests.** Le comportement est déjà le bon —
   `SondeCard.jsx:44` décorative, `SondeCard.jsx:68` nommée — et il ne bouge pas.
   Aucun composant n'apparaît dans le diff
-- **Le mutant que #72 signalait comme survivant est tué.** L'icône est
-  désormais repérée par son **conteneur** (`.offline-badge` en pleine largeur,
-  la rangée du nom en compacte) et non par ses attributs : un repère par
-  `aria-label` aurait disparu avec le `label`, et le mutant inverse serait passé
-  au vert pour la mauvaise raison
+- **Le mutant que #72 signalait comme survivant est tué**, mais l'icône a d'abord
+  été localisée de deux façons successives, dont chacune seule laissait passer un
+  mutant que l'autre attrape — un repère qui n'en vérifie qu'un est pire
+  qu'aucun, il semble couvrir
+  - **par le porteur** (`.offline-badge` en pleine largeur, la rangée du nom en
+    compacte) : vérifie *où* l'icône est rendue. Ne dit rien de *laquelle* —
+    `name="droplet"`, icône valide à la mauvaise place, passait les 20 tests du
+    fichier
+  - **par son tracé**, comparé à `ICON_PATHS['wifi-off']` : vérifie *laquelle*.
+    Ne dit rien d'*où* — l'icône acceptée n'importe où dans la card laissait
+    passer deux mutants de déplacement
+  - **les deux sont cumulés** désormais : le tracé cherché dans le porteur.
+    Comparaison sur les **cinq** tracés et non le premier : `M12 18l.01 0` est
+    aussi, chez Tabler, le premier tracé de `wifi` (le point à la base de
+    l'antenne, commun à la famille) et le jour où cette icône entre dans
+    `iconPaths.js`, un repère sur le premier tracé rendrait celle qui arrive la
+    première dans le DOM, en silence. Clé lue en chaîne optionnelle, pour qu'une
+    clé disparue ne fasse pas disparaître les 20 tests du fichier dans un
+    `TypeError` au chargement du module
+  - **Un mutant reste vivant, et c'est dit** : une icône décorative dupliquée à
+    côté dans le badge passe encore, la recherche sur le tracé retrouvant le bon
+    `wifi-off` malgré la voisine. Aucune version ne l'a jamais attrapé, ce n'est
+    donc pas une régression ; l'attraper demanderait d'affirmer que le porteur ne
+    contient qu'une icône, un invariant de mise en page qu'un chevron de rupture
+    casserait à bon escient. Ce n'est pas écrit, faute de fait à protéger
 - **Un `it` par disposition**, alimenté par le tableau du `describe.each`, qui
   porte désormais l'état attendu de l'icône : `aria-label`, `aria-hidden`,
   `role`, et le nombre d'images nommées « Hors ligne » dans l'arbre
