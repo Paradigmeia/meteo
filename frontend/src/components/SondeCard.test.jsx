@@ -2,6 +2,7 @@
 import { render, screen, cleanup } from '@testing-library/react'
 import { describe, it, expect, afterEach } from 'vitest'
 import SondeCard from './SondeCard'
+import { ICON_PATHS } from '../utils/iconPaths'
 
 // Couvre le versant affichage de l'issue #43. Le backend renvoie désormais dans
 // `recu_le` le plus récent des deux horodatages : une sonde dont seule
@@ -34,17 +35,22 @@ const sondeMuette = () => {
   return { temperature: 21, humidite: 55, recu_le: vieux, recu_le_temp: vieux, recu_le_hum: vieux }
 }
 
-// L'icône `wifi-off`, repérée par son conteneur et non par ses attributs : la
-// chercher par son nom accessible rendrait l'assertion tautologique, et c'est
-// précisément le nom — son absence en pleine largeur — que le test vérifie. Un
-// repère par attribut disparaîtrait avec le `label`, et le mutant inverse
-// passerait au vert pour la mauvaise raison.
-const iconeWifiOff = () => {
-  // En pleine largeur, l'icône est dans le badge « Hors ligne » ; en compacte,
-  // il n'y a pas de badge et l'icône est seule dans la rangée du nom.
-  const porteur = document.querySelector('.offline-badge') ?? document.querySelector('.sonde-name').parentElement
-  return porteur?.querySelector('svg') ?? null
-}
+// L'icône `wifi-off`, identifiée par son TRACÉ et non par sa place dans un
+// conteneur. Un conteneur qui contient « une icône » ne prouve rien sur elle : le
+// mutant `name="droplet"` passait les 20 tests de ce fichier sans un seul rouge,
+// la suite appelant alors « l'icône hors ligne » ce qu'elle ne testait pas. Le
+// même repère positionnel attraperait la première icône de la rangée — ajouter
+// demain une icône à gauche du nom ferait tester la mauvaise, sans échec.
+const TRACE_WIFI_OFF = ICON_PATHS['wifi-off'][0]
+
+// Comparer le `d` du premier `<path>` suffit à identifier l'icône : mesuré, le
+// premier tracé est unique parmi les 15 icônes d'`iconPaths.js` (aucune
+// collision). Le nom vient de la même source que les tracés, ce n'est donc pas
+// l'implémentation rejouée dans le test — c'est la donnée de référence.
+const iconeWifiOff = () =>
+  [...document.querySelectorAll('.sonde-card svg')].find(
+    svg => svg.querySelector('path')?.getAttribute('d') === TRACE_WIFI_OFF,
+  ) ?? null
 
 // Ce que chaque disposition attend de cette icône. Le texte « Hors ligne » est
 // nœud frère de l'icône en pleine largeur : y poser un nom accessible ferait
@@ -125,12 +131,12 @@ describe.each([
   it('ne nomme l\'icône hors ligne que dans la disposition où elle est seule', () => {
     // Issue #74 : le mutant « nommer l'icône `wifi-off` en pleine largeur »
     // survivait — en compacte, `horsLigne()` retombe sur `queryByLabelText` et
-    // regarde bien l'icône ; en pleine largeur, `.offline-badge` Kurzschliffe
+    // regarde bien l'icône ; en pleine largeur, `.offline-badge` court-circuite
     // avant, classe du conteneur, et l'icône n'était jamais consultée. L'inverse
     // (retirer le nom de l'icône compacte) était attrapé, mais par le helper.
     carte(sondeMuette(), props)
     const svg = iconeWifiOff()
-    expect(svg).not.toBeNull()
+    expect(svg, 'aucune icône `wifi-off` rendue dans la card').not.toBeNull()
     // `getAttribute` et non la présence de l'attribut : une icône sans nom et
     // une icône `aria-label=""` ne sont pas le même état.
     expect(svg.getAttribute('aria-label')).toBe(icone.label)
