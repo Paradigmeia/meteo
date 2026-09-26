@@ -35,22 +35,42 @@ const sondeMuette = () => {
   return { temperature: 21, humidite: 55, recu_le: vieux, recu_le_temp: vieux, recu_le_hum: vieux }
 }
 
-// L'icône `wifi-off`, identifiée par son TRACÉ et non par sa place dans un
-// conteneur. Un conteneur qui contient « une icône » ne prouve rien sur elle : le
-// mutant `name="droplet"` passait les 20 tests de ce fichier sans un seul rouge,
-// la suite appelant alors « l'icône hors ligne » ce qu'elle ne testait pas. Le
-// même repère positionnel attraperait la première icône de la rangée — ajouter
-// demain une icône à gauche du nom ferait tester la mauvaise, sans échec.
-const TRACE_WIFI_OFF = ICON_PATHS['wifi-off'][0]
+// L'icône `wifi-off` est localisée par son TRACÉ **dans son porteur**, et il a
+// fallu les deux repères : chacun seul laisse passer un mutant que l'autre
+// attrape. Un conteneur qui contient « une icône » ne prouve rien sur elle —
+// `name="droplet"` passait les 20 tests de ce fichier, la suite appelant alors
+// « l'icône hors ligne » ce qu'elle ne testait pas. Réciproquement, le tracé
+// seul accepte l'icône n'importe où dans la card : les deux mutants de
+// déplacement que le porteur attrapait — icône sortie du badge, icône déplacée
+// dans `.sonde-hum` — repassaient au vert. Un repère qui n'en vérifie qu'un des
+// deux est pire qu'aucun : il semble couvrir.
+//
+// Reste un mutant que ce cumul n'attrape pas, une icône décorative dupliquée
+// à côté dans le badge : la recherche sur le tracé retrouve le bon `wifi-off`
+// malgré la voisine. Aucune version ne l'a jamais attrapé, et l'attraper
+// demanderait d'affirmer que le porteur ne contient qu'une icône — un invariant
+// de mise en page. Je ne le dis pas ici pour ne pas figer la mise en forme.
 
-// Comparer le `d` du premier `<path>` suffit à identifier l'icône : mesuré, le
-// premier tracé est unique parmi les 15 icônes d'`iconPaths.js` (aucune
-// collision). Le nom vient de la même source que les tracés, ce n'est donc pas
-// l'implémentation rejouée dans le test — c'est la donnée de référence.
+// La concaténation des CINQ tracés rendus, pas seulement le premier : chez Tabler,
+// `M12 18l.01 0` est aussi le premier tracé de `wifi` (le point à la base de
+// l'antenne, commun à la famille) et le jour où cette icône entre dans
+// `iconPaths.js`, `.find` rendrait celle qui arrive la première dans le DOM, sans
+// un mot. Mesuré sur les 15 icônes actuelles : aucune collision sur la
+// concaténation complète, pas plus que sur le premier tracé. La clé est lue en
+// chaîne optionnelle pour qu'une clé disparue ne fasse pas disparaître les 20
+// tests du fichier dans un `TypeError` au chargement du module.
+const TRACE_WIFI_OFF = ICON_PATHS['wifi-off']?.join('|') ?? null
+
+const estWifiOff = svg =>
+  [...svg.querySelectorAll('path')].map(p => p.getAttribute('d')).join('|') === TRACE_WIFI_OFF
+
+// Le porteur : le badge « Hors ligne » en pleine largeur ; en compacte il n'y a
+// pas de badge, et l'icône est seule dans la rangée du nom.
+const porteurWifiOff = () =>
+  document.querySelector('.offline-badge') ?? document.querySelector('.sonde-name')?.parentElement ?? null
+
 const iconeWifiOff = () =>
-  [...document.querySelectorAll('.sonde-card svg')].find(
-    svg => svg.querySelector('path')?.getAttribute('d') === TRACE_WIFI_OFF,
-  ) ?? null
+  [...(porteurWifiOff()?.querySelectorAll('svg') ?? [])].find(estWifiOff) ?? null
 
 // Ce que chaque disposition attend de cette icône. Le texte « Hors ligne » est
 // nœud frère de l'icône en pleine largeur : y poser un nom accessible ferait
@@ -134,9 +154,13 @@ describe.each([
     // regarde bien l'icône ; en pleine largeur, `.offline-badge` court-circuite
     // avant, classe du conteneur, et l'icône n'était jamais consultée. L'inverse
     // (retirer le nom de l'icône compacte) était attrapé, mais par le helper.
+    // La clé de référence est vérifiée à part : sans elle, une clé disparue
+    // d'`iconPaths.js` ferait échouer l'assertion suivante pour une raison
+    // étrangère, au lieu de le dire.
+    expect(ICON_PATHS['wifi-off'], 'clé `wifi-off` absente d\'iconPaths.js').toBeDefined()
     carte(sondeMuette(), props)
     const svg = iconeWifiOff()
-    expect(svg, 'aucune icône `wifi-off` rendue dans la card').not.toBeNull()
+    expect(svg, 'aucune icône `wifi-off` dans le porteur').not.toBeNull()
     // `getAttribute` et non la présence de l'attribut : une icône sans nom et
     // une icône `aria-label=""` ne sont pas le même état.
     expect(svg.getAttribute('aria-label')).toBe(icone.label)
