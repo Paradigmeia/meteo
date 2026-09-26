@@ -27,12 +27,37 @@ const marqueur = grandeur =>
 
 const horsLigne = () => document.querySelector('.offline-badge') || screen.queryByLabelText('Hors ligne')
 
+// La fixture hors ligne des deux dispositions : une sonde muette depuis 6 h, de
+// quoi dépasser le seuil de 3 h d'`isOffline` quelle que soit la variante.
+const sondeMuette = () => {
+  const vieux = ilYA(6 * HEURE)
+  return { temperature: 21, humidite: 55, recu_le: vieux, recu_le_temp: vieux, recu_le_hum: vieux }
+}
+
+// L'icône `wifi-off`, repérée par son conteneur et non par ses attributs : la
+// chercher par son nom accessible rendrait l'assertion tautologique, et c'est
+// précisément le nom — son absence en pleine largeur — que le test vérifie. Un
+// repère par attribut disparaîtrait avec le `label`, et le mutant inverse
+// passerait au vert pour la mauvaise raison.
+const iconeWifiOff = () => {
+  // En pleine largeur, l'icône est dans le badge « Hors ligne » ; en compacte,
+  // il n'y a pas de badge et l'icône est seule dans la rangée du nom.
+  const porteur = document.querySelector('.offline-badge') ?? document.querySelector('.sonde-name').parentElement
+  return porteur?.querySelector('svg') ?? null
+}
+
+// Ce que chaque disposition attend de cette icône. Le texte « Hors ligne » est
+// nœud frère de l'icône en pleine largeur : y poser un nom accessible ferait
+// annoncer l'information deux fois (#74).
+const ICONE_NOMMEE = { label: 'Hors ligne', cachee: false }
+const ICONE_DECORATIVE = { label: null, cachee: true }
+
 afterEach(cleanup)
 
 describe.each([
-  ['card compacte', {}],
-  ['card pleine largeur', { fullWidth: true }],
-])('%s', (_nom, props) => {
+  ['card compacte', {}, ICONE_NOMMEE],
+  ['card pleine largeur', { fullWidth: true }, ICONE_DECORATIVE],
+])('%s', (_nom, props, icone) => {
   it('ne marque rien quand les deux grandeurs arrivent ensemble', () => {
     const t = ilYA(5 * MINUTE)
     carte({ temperature: 21, humidite: 55, recu_le: t, recu_le_temp: t, recu_le_hum: t }, props)
@@ -90,22 +115,37 @@ describe.each([
   })
 
   it('garde le badge hors ligne quand plus rien ne remonte', () => {
-    const vieux = ilYA(6 * HEURE)
-    carte(
-      { temperature: 21, humidite: 55, recu_le: vieux, recu_le_temp: vieux, recu_le_hum: vieux },
-      props,
-    )
+    carte(sondeMuette(), props)
     expect(horsLigne()).not.toBeNull()
     // Les deux grandeurs sont aussi vieilles l'une que l'autre : rien à
     // distinguer, le badge dit déjà tout.
     expect([marqueur('temp'), marqueur('hum')]).toEqual([null, null])
   })
 
+  it('ne nomme l\'icône hors ligne que dans la disposition où elle est seule', () => {
+    // Issue #74 : le mutant « nommer l'icône `wifi-off` en pleine largeur »
+    // survivait — en compacte, `horsLigne()` retombe sur `queryByLabelText` et
+    // regarde bien l'icône ; en pleine largeur, `.offline-badge` Kurzschliffe
+    // avant, classe du conteneur, et l'icône n'était jamais consultée. L'inverse
+    // (retirer le nom de l'icône compacte) était attrapé, mais par le helper.
+    carte(sondeMuette(), props)
+    const svg = iconeWifiOff()
+    expect(svg).not.toBeNull()
+    // `getAttribute` et non la présence de l'attribut : une icône sans nom et
+    // une icône `aria-label=""` ne sont pas le même état.
+    expect(svg.getAttribute('aria-label')).toBe(icone.label)
+    expect(svg.getAttribute('aria-hidden')).toBe(icone.cachee ? 'true' : null)
+    expect(svg.getAttribute('role')).toBe(icone.label ? 'img' : null)
+    // Du point de vue de l'accessibilité, qui ne voit que l'arbre exposé : le
+    // nom existe une fois en compacte, aucune fois en pleine largeur.
+    expect(screen.queryAllByRole('img', { name: 'Hors ligne' })).toHaveLength(icone.label ? 1 : 0)
+  })
+
   it('donne un nom accessible à la goutte d\'humidité', () => {
     // Issue #55 : avant, « 63 % » était annoncé sans sa grandeur. Le label est
     // porté par l'icône (role="img" + aria-label) et pas par le conteneur :
     // un aria-label sur `.sonde-hum` avalerait la valeur visible ET le badge
-    // de retard (#64) qui vit dessous.
+    // de retard (#43) qui vit dessous.
     carte({ temperature: 21, humidite: 55, recu_le: ilYA(MINUTE) }, props)
     expect(screen.getByRole('img', { name: 'Humidité' })).toBeTruthy()
     expect(document.querySelector('.sonde-hum').textContent).toContain('55%')
