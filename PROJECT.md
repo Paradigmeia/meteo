@@ -115,7 +115,8 @@ Légende : 🔲 À faire · 🔄 En cours · ✅ Livré · ⚠️ Dette techniqu
     « Hors ligne » deux fois : le mutant est une régression que les tests
     laissent passer, pas un correctif à appliquer. Le contrôle « aucune
     décorative ne gagne de nom » n'existe que pour `MeteoCard`. Le test
-    manquant fera l'objet d'une issue séparée
+    manquant fera l'objet d'une issue séparée — c'est l'issue #74, test livré
+    le 2026-09-26 (PR #75), quiTue le mutant dans les deux sens
   - **la PR décrit sa méthode de relevé de deux façons incompatibles**
     (Playwright dans la description, jsdom dans le compte rendu de session), et
     le compte rendu décrit un environnement (WSL, npm absent) qui n'est pas
