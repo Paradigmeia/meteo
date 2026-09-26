@@ -2,6 +2,7 @@
 import { render, screen, cleanup } from '@testing-library/react'
 import { describe, it, expect, afterEach } from 'vitest'
 import SondeCard from './SondeCard'
+import { ICON_PATHS } from '../utils/iconPaths'
 
 // Couvre le versant affichage de l'issue #43. Le backend renvoie désormais dans
 // `recu_le` le plus récent des deux horodatages : une sonde dont seule
@@ -27,12 +28,62 @@ const marqueur = grandeur =>
 
 const horsLigne = () => document.querySelector('.offline-badge') || screen.queryByLabelText('Hors ligne')
 
+// La fixture hors ligne des deux dispositions : une sonde muette depuis 6 h, de
+// quoi dépasser le seuil de 3 h d'`isOffline` quelle que soit la variante.
+const sondeMuette = () => {
+  const vieux = ilYA(6 * HEURE)
+  return { temperature: 21, humidite: 55, recu_le: vieux, recu_le_temp: vieux, recu_le_hum: vieux }
+}
+
+// L'icône `wifi-off` est localisée par son TRACÉ **dans son porteur**, et il a
+// fallu les deux repères : chacun seul laisse passer un mutant que l'autre
+// attrape. Un conteneur qui contient « une icône » ne prouve rien sur elle —
+// `name="droplet"` passait les 20 tests de ce fichier, la suite appelant alors
+// « l'icône hors ligne » ce qu'elle ne testait pas. Réciproquement, le tracé
+// seul accepte l'icône n'importe où dans la card : les deux mutants de
+// déplacement que le porteur attrapait — icône sortie du badge, icône déplacée
+// dans `.sonde-hum` — repassaient au vert. Un repère qui n'en vérifie qu'un des
+// deux est pire qu'aucun : il semble couvrir.
+//
+// Reste un mutant que ce cumul n'attrape pas, une icône décorative dupliquée
+// à côté dans le badge : la recherche sur le tracé retrouve le bon `wifi-off`
+// malgré la voisine. Aucune version ne l'a jamais attrapé, et l'attraper
+// demanderait d'affirmer que le porteur ne contient qu'une icône — un invariant
+// de mise en page. Je ne le dis pas ici pour ne pas figer la mise en forme.
+
+// La concaténation des CINQ tracés rendus, pas seulement le premier : chez Tabler,
+// `M12 18l.01 0` est aussi le premier tracé de `wifi` (le point à la base de
+// l'antenne, commun à la famille) et le jour où cette icône entre dans
+// `iconPaths.js`, `.find` rendrait celle qui arrive la première dans le DOM, sans
+// un mot. Mesuré sur les 15 icônes actuelles : aucune collision sur la
+// concaténation complète, pas plus que sur le premier tracé. La clé est lue en
+// chaîne optionnelle pour qu'une clé disparue ne fasse pas disparaître les 20
+// tests du fichier dans un `TypeError` au chargement du module.
+const TRACE_WIFI_OFF = ICON_PATHS['wifi-off']?.join('|') ?? null
+
+const estWifiOff = svg =>
+  [...svg.querySelectorAll('path')].map(p => p.getAttribute('d')).join('|') === TRACE_WIFI_OFF
+
+// Le porteur : le badge « Hors ligne » en pleine largeur ; en compacte il n'y a
+// pas de badge, et l'icône est seule dans la rangée du nom.
+const porteurWifiOff = () =>
+  document.querySelector('.offline-badge') ?? document.querySelector('.sonde-name')?.parentElement ?? null
+
+const iconeWifiOff = () =>
+  [...(porteurWifiOff()?.querySelectorAll('svg') ?? [])].find(estWifiOff) ?? null
+
+// Ce que chaque disposition attend de cette icône. Le texte « Hors ligne » est
+// nœud frère de l'icône en pleine largeur : y poser un nom accessible ferait
+// annoncer l'information deux fois (#74).
+const ICONE_NOMMEE = { label: 'Hors ligne', cachee: false }
+const ICONE_DECORATIVE = { label: null, cachee: true }
+
 afterEach(cleanup)
 
 describe.each([
-  ['card compacte', {}],
-  ['card pleine largeur', { fullWidth: true }],
-])('%s', (_nom, props) => {
+  ['card compacte', {}, ICONE_NOMMEE],
+  ['card pleine largeur', { fullWidth: true }, ICONE_DECORATIVE],
+])('%s', (_nom, props, icone) => {
   it('ne marque rien quand les deux grandeurs arrivent ensemble', () => {
     const t = ilYA(5 * MINUTE)
     carte({ temperature: 21, humidite: 55, recu_le: t, recu_le_temp: t, recu_le_hum: t }, props)
@@ -90,22 +141,41 @@ describe.each([
   })
 
   it('garde le badge hors ligne quand plus rien ne remonte', () => {
-    const vieux = ilYA(6 * HEURE)
-    carte(
-      { temperature: 21, humidite: 55, recu_le: vieux, recu_le_temp: vieux, recu_le_hum: vieux },
-      props,
-    )
+    carte(sondeMuette(), props)
     expect(horsLigne()).not.toBeNull()
     // Les deux grandeurs sont aussi vieilles l'une que l'autre : rien à
     // distinguer, le badge dit déjà tout.
     expect([marqueur('temp'), marqueur('hum')]).toEqual([null, null])
   })
 
+  it('ne nomme l\'icône hors ligne que dans la disposition où elle est seule', () => {
+    // Issue #74 : le mutant « nommer l'icône `wifi-off` en pleine largeur »
+    // survivait — en compacte, `horsLigne()` retombe sur `queryByLabelText` et
+    // regarde bien l'icône ; en pleine largeur, `.offline-badge` court-circuite
+    // avant, classe du conteneur, et l'icône n'était jamais consultée. L'inverse
+    // (retirer le nom de l'icône compacte) était attrapé, mais par le helper.
+    // La clé de référence est vérifiée à part : sans elle, une clé disparue
+    // d'`iconPaths.js` ferait échouer l'assertion suivante pour une raison
+    // étrangère, au lieu de le dire.
+    expect(ICON_PATHS['wifi-off'], 'clé `wifi-off` absente d\'iconPaths.js').toBeDefined()
+    carte(sondeMuette(), props)
+    const svg = iconeWifiOff()
+    expect(svg, 'aucune icône `wifi-off` dans le porteur').not.toBeNull()
+    // `getAttribute` et non la présence de l'attribut : une icône sans nom et
+    // une icône `aria-label=""` ne sont pas le même état.
+    expect(svg.getAttribute('aria-label')).toBe(icone.label)
+    expect(svg.getAttribute('aria-hidden')).toBe(icone.cachee ? 'true' : null)
+    expect(svg.getAttribute('role')).toBe(icone.label ? 'img' : null)
+    // Du point de vue de l'accessibilité, qui ne voit que l'arbre exposé : le
+    // nom existe une fois en compacte, aucune fois en pleine largeur.
+    expect(screen.queryAllByRole('img', { name: 'Hors ligne' })).toHaveLength(icone.label ? 1 : 0)
+  })
+
   it('donne un nom accessible à la goutte d\'humidité', () => {
     // Issue #55 : avant, « 63 % » était annoncé sans sa grandeur. Le label est
     // porté par l'icône (role="img" + aria-label) et pas par le conteneur :
     // un aria-label sur `.sonde-hum` avalerait la valeur visible ET le badge
-    // de retard (#64) qui vit dessous.
+    // de retard (#43) qui vit dessous.
     carte({ temperature: 21, humidite: 55, recu_le: ilYA(MINUTE) }, props)
     expect(screen.getByRole('img', { name: 'Humidité' })).toBeTruthy()
     expect(document.querySelector('.sonde-hum').textContent).toContain('55%')

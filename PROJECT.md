@@ -28,7 +28,69 @@ Légende : 🔲 À faire · 🔄 En cours · ✅ Livré · ⚠️ Dette techniqu
 
 ## Changelog
 
-### 2026-09-13 — Issue #55 : les icônes porteuses d'information ont un nom accessible
+### 2026-09-26 — L'icône hors ligne, décorative en pleine largeur et nommée en compacte (PR #75, issue #74)
+
+- **Ce qui change, ce sont les tests.** Le comportement est déjà le bon —
+  `SondeCard.jsx:44` décorative, `SondeCard.jsx:68` nommée — et il ne bouge pas.
+  Aucun composant n'apparaît dans le diff
+- **Le mutant que #72 signalait comme survivant est tué**, mais l'icône a d'abord
+  été localisée de deux façons successives, dont chacune seule laissait passer un
+  mutant que l'autre attrape — un repère qui n'en vérifie qu'un est pire
+  qu'aucun, il semble couvrir
+  - **par le porteur** (`.offline-badge` en pleine largeur, la rangée du nom en
+    compacte) : vérifie *où* l'icône est rendue. Ne dit rien de *laquelle* —
+    `name="droplet"`, icône valide à la mauvaise place, passait les 20 tests du
+    fichier
+  - **par son tracé**, comparé à `ICON_PATHS['wifi-off']` : vérifie *laquelle*.
+    Ne dit rien d'*où* — l'icône acceptée n'importe où dans la card laissait
+    passer deux mutants de déplacement
+  - **les deux sont cumulés** désormais : le tracé cherché dans le porteur.
+    Comparaison sur les **cinq** tracés et non le premier : `M12 18l.01 0` est
+    aussi, chez Tabler, le premier tracé de `wifi` (le point à la base de
+    l'antenne, commun à la famille) et le jour où cette icône entre dans
+    `iconPaths.js`, un repère sur le premier tracé rendrait celle qui arrive la
+    première dans le DOM, en silence. Clé lue en chaîne optionnelle, pour qu'une
+    clé disparue ne fasse pas disparaître les 20 tests du fichier dans un
+    `TypeError` au chargement du module
+  - **Un mutant reste vivant, et c'est dit** : une icône décorative dupliquée à
+    côté dans le badge passe encore, la recherche sur le tracé retrouvant le bon
+    `wifi-off` malgré la voisine. Aucune version ne l'a jamais attrapé, ce n'est
+    donc pas une régression ; l'attraper demanderait d'affirmer que le porteur ne
+    contient qu'une icône, un invariant de mise en page qu'un chevron de rupture
+    casserait à bon escient. Ce n'est pas écrit, faute de fait à protéger
+- **Un `it` par disposition**, alimenté par le tableau du `describe.each`, qui
+  porte désormais l'état attendu de l'icône : `aria-label`, `aria-hidden`,
+  `role`, et le nombre d'images nommées « Hors ligne » dans l'arbre
+  d'accessibilité — 1 en compacte, 0 en pleine largeur. Le nombre est en plus du
+  contrôle par attribut, parce que c'est lui que voit un lecteur d'écran
+- **Les deux mutants sont attrapés, dans les deux sens** :
+  - `label="Hors ligne"` ajouté à l'icône pleine largeur → **1 test rouge** sur
+    61. C'est la régression que #72 signalait : « Hors ligne » serait annoncé deux
+    fois, le texte étant nœud frère de l'icône dans le même badge
+  - `label` retiré de l'icône compacte → **2 tests rouges**. Un seul l'est grâce
+    au nouveau test ; l'autre, « garde le badge hors ligne quand plus rien ne
+    remonte », l'était déjà par `horsLigne()`, dont le `||` retombe sur
+    `queryByLabelText` en compacte. Cela confirme, en exécution, la réserve de
+    la review du 2026-09-22
+- **Fixture hors ligne extraite** (`sondeMuette()`, 6 h pour un seuil de 3 h) et
+  partagée avec l'ancien test du badge : le cas hors ligne existe désormais à un
+  seul endroit
+- **Une référence fausse, corrigée** : `SondeCard.test.jsx` citait « #64 » —
+  le numéro de la PR — là où il fallait l'issue #43, comme le fait la ligne 6 du
+  même fichier. Divergence relevée par la review de #73, qui l'avait laissée
+  hors scope en la qualifiant de « mériterait d'être mentionné ». En revanche le
+  « relevé en review de #64 » de la ligne 24 est exact et n'y est pas : la
+  review de la PR #64 (B2, 2026-08-30) a bien relevé le collects à plat des
+  marqueurs
+- **Entrée du 2026-09-13 corrigée sur deux points** : titre au format
+  `— Titre court (PR #N, issue #M)` de l'AGENTS.md § 6, et « jamais l'icône
+  elle-même » restreint à la variante pleine largeur. Rétroactif limité à cette
+  entrée : 36 des 38 entrées du changelog restent hors format, la mise au
+  niveau étant une opération distincte
+- **Suites** : 61 frontend (2 tests ajoutés), backend non concerné. SPEC.md et
+  PLAN.md inchangés — ni fonctionnalité nouvelle, ni décision d'architecture
+
+### 2026-09-13 — Les icônes porteuses d'information ont un nom accessible (PR #72, issue #55)
 
 - **Cause** : depuis #51, toute icône sans prop `label` est rendue en
   `aria-hidden`. C'est juste pour les icônes décoratives, mais à deux endroits
@@ -60,7 +122,12 @@ Légende : 🔲 À faire · 🔄 En cours · ✅ Livré · ⚠️ Dette techniqu
     fixture : « garde le badge hors ligne quand plus rien ne remonte » rend une
     sonde muette depuis 6 h, et le `describe.each` l'exécute sur les deux
     variantes. Le mutant survit parce que le helper `horsLigne()` teste
-    `.offline-badge`, une classe du conteneur, et jamais l'icône elle-même
+    `.offline-badge`, une classe du conteneur, et **jamais l'icône elle-même en
+    pleine largeur** — précision apportée par la seconde review du 2026-09-22
+    sur #73, l'énoncé d'origine étant trop général. Le `||` de `horsLigne()`
+    court-circuite : en compacte, il n'y a pas de `.offline-badge`, donc le
+    helper retombe sur `queryByLabelText`, qui regarde bien l'icône. Seule la
+    variante pleine largeur n'était jamais consultée
   - **le vrai trou** : aucun test ne fixe l'état attendu de l'icône selon la
     variante. Elle est décorative (`aria-hidden`) en pleine largeur, où le
     texte « Hors ligne » porte déjà l'information, et nommée en compacte, où
@@ -68,7 +135,8 @@ Légende : 🔲 À faire · 🔄 En cours · ✅ Livré · ⚠️ Dette techniqu
     « Hors ligne » deux fois : le mutant est une régression que les tests
     laissent passer, pas un correctif à appliquer. Le contrôle « aucune
     décorative ne gagne de nom » n'existe que pour `MeteoCard`. Le test
-    manquant fera l'objet d'une issue séparée
+    manquant fera l'objet d'une issue séparée — c'est l'issue #74, test livré
+    le 2026-09-26 (PR #75), qui tue le mutant dans les deux sens
   - **la PR décrit sa méthode de relevé de deux façons incompatibles**
     (Playwright dans la description, jsdom dans le compte rendu de session), et
     le compte rendu décrit un environnement (WSL, npm absent) qui n'est pas
