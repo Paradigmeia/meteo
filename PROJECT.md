@@ -28,7 +28,49 @@ Légende : 🔲 À faire · 🔄 En cours · ✅ Livré · ⚠️ Dette techniqu
 
 ## Changelog
 
-### 2026-09-13 — Issue #55 : les icônes porteuses d'information ont un nom accessible
+### 2026-09-26 — L'icône hors ligne, décorative en pleine largeur et nommée en compacte (PR #75, issue #74)
+
+- **Ce qui change, ce sont les tests.** Le comportement est déjà le bon —
+  `SondeCard.jsx:44` décorative, `SondeCard.jsx:68` nommée — et il ne bouge pas.
+  Aucun composant n'apparaît dans le diff
+- **Le mutant que #72 signalait comme survivant est tué.** L'icône est
+  désormais repérée par son **conteneur** (`.offline-badge` en pleine largeur,
+  la rangée du nom en compacte) et non par ses attributs : un repère par
+  `aria-label` aurait disparu avec le `label`, et le mutant inverse serait passé
+  au vert pour la mauvaise raison
+- **Un `it` par disposition**, alimenté par le tableau du `describe.each`, qui
+  porte désormais l'état attendu de l'icône : `aria-label`, `aria-hidden`,
+  `role`, et le nombre d'images nommées « Hors ligne » dans l'arbre
+  d'accessibilité — 1 en compacte, 0 en pleine largeur. Le nombre est en plus du
+  contrôle par attribut, parce que c'est lui que voit un lecteur d'écran
+- **Les deux mutants sont attrapés, dans les deux sens** :
+  - `label="Hors ligne"` ajouté à l'icône pleine largeur → **1 test rouge** sur
+    61. C'est la régression que #72 signalait : « Hors ligne » serait annoncé deux
+    fois, le texte étant nœud frère de l'icône dans le même badge
+  - `label` retiré de l'icône compacte → **2 tests rouges**. Un seul l'est grâce
+    au nouveau test ; l'autre, « garde le badge hors ligne quand plus rien ne
+    remonte », l'était déjà par `horsLigne()`, dont le `||` retombe sur
+    `queryByLabelText` en compacte. Cela confirme, en exécution, la réserve de
+    la review du 2026-09-22
+- **Fixture hors ligne extraite** (`sondeMuette()`, 6 h pour un seuil de 3 h) et
+  partagée avec l'ancien test du badge : le cas hors ligne existe désormais à un
+  seul endroit
+- **Une référence fausse, corrigée** : `SondeCard.test.jsx` citait « #64 » —
+  le numéro de la PR — là où il fallait l'issue #43, comme le fait la ligne 6 du
+  même fichier. Divergence relevée par la review de #73, qui l'avait laissée
+  hors scope en la qualifiant de « mériterait d'être mentionné ». En revanche le
+  « relevé en review de #64 » de la ligne 24 est exact et n'y est pas : la
+  review de la PR #64 (B2, 2026-08-30) a bien relevé le collects à plat des
+  marqueurs
+- **Entrée du 2026-09-13 corrigée sur deux points** : titre au format
+  `— Titre court (PR #N, issue #M)` de l'AGENTS.md § 6, et « jamais l'icône
+  elle-même » restreint à la variante pleine largeur. Rétroactif limité à cette
+  entrée : 36 des 38 entrées du changelog restent hors format, la mise au
+  niveau étant une opération distincte
+- **Suites** : 61 frontend (2 tests ajoutés), backend non concerné. SPEC.md et
+  PLAN.md inchangés — ni fonctionnalité nouvelle, ni décision d'architecture
+
+### 2026-09-13 — Les icônes porteuses d'information ont un nom accessible (PR #72, issue #55)
 
 - **Cause** : depuis #51, toute icône sans prop `label` est rendue en
   `aria-hidden`. C'est juste pour les icônes décoratives, mais à deux endroits
@@ -60,7 +102,12 @@ Légende : 🔲 À faire · 🔄 En cours · ✅ Livré · ⚠️ Dette techniqu
     fixture : « garde le badge hors ligne quand plus rien ne remonte » rend une
     sonde muette depuis 6 h, et le `describe.each` l'exécute sur les deux
     variantes. Le mutant survit parce que le helper `horsLigne()` teste
-    `.offline-badge`, une classe du conteneur, et jamais l'icône elle-même
+    `.offline-badge`, une classe du conteneur, et **jamais l'icône elle-même en
+    pleine largeur** — précision apportée par la seconde review du 2026-09-22
+    sur #73, l'énoncé d'origine étant trop général. Le `||` de `horsLigne()`
+    court-circuite : en compacte, il n'y a pas de `.offline-badge`, donc le
+    helper retombe sur `queryByLabelText`, qui regarde bien l'icône. Seule la
+    variante pleine largeur n'était jamais consultée
   - **le vrai trou** : aucun test ne fixe l'état attendu de l'icône selon la
     variante. Elle est décorative (`aria-hidden`) en pleine largeur, où le
     texte « Hors ligne » porte déjà l'information, et nommée en compacte, où
