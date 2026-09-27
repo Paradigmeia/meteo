@@ -28,6 +28,68 @@ Légende : 🔲 À faire · 🔄 En cours · ✅ Livré · ⚠️ Dette techniqu
 
 ## Changelog
 
+### 2026-09-27 — Le texte « Hors ligne » du badge pleine largeur est verrouillé (PR #79, issue #77)
+
+- **Ce qui change, ce sont les tests.** Le comportement est déjà le bon —
+  `SondeCard.jsx:44` porte le texte, `SondeCard.jsx:68` porte le nom accessible —
+  et il ne bouge pas. Aucun composant n'apparaît dans le diff
+- **Le trou venait de #74** : son test fonde la décision « icône décorative en
+  pleine largeur » sur le fait que le texte « Hors ligne » est nœud frère de l'icône,
+  et il n'assertait que la **conséquence** (zéro image nommée) sans jamais asserter
+  la **prémisse**. Le texte pouvait disparaître : les 61 tests de la suite
+  passaient, et la card hors ligne se retrouvait réduite à un pictogramme
+  `aria-hidden`, sans aucun nom accessible. `horsLigne()` ne le voyait pas — il
+  vérifie que le badge existe, pas ce qu'il dit
+- **Le texte est lu dans le badge, pas dans le document.** Un
+  `screen.getByText('Hors ligne')` validerait aussi un texte déplacé en frère du
+  badge : à l'écran, donc visible, et hors du nœud qui le porte. Vérifié en exécution
+  (mutant du texte déplacé : 1 test rouge)
+- **Le texte doit être exposé, pas seulement présent** : masqué, il reste à l'écran et
+  disparaît de l'arbre d'accessibilité — l'état muet que l'assertion précédente
+  validerait à elle seule. Deux routes, donc deux sélecteurs :
+  `closest('[aria-hidden="true"],[hidden]')`. Ce n'est pas un invariant de mise en
+  page comme le mutant laissé vivant en #74, c'est une propriété d'accessibilité,
+  donc le sujet de l'issue
+- **Garde de la condition de skip** : les deux tests sont dans le `describe.each` de
+  #74, chacun exécuté par une seule variante, et chacun garde la condition de skip
+  de l'autre. Un test ignoré étant vert, si `props.fullWidth` devenait faux pour la
+  variante pleine largeur, la garde s'exécuterait sur elle et tomberait au rouge.
+  `.offline-badge` n'est rendu que dans la branche `fullWidth` de `SondeCard.jsx`
+  (lignes 40-44), l'assertion d'absence est donc exacte et non tautologique
+- **Mutants vérifiés en exécution**, sortie réelle à chaque fois :
+  - texte retiré du badge (le mutant de l'issue) → **1 fichier en échec, 1 test
+    rouge sur 65**, `expected '' to contain 'Hors ligne'`
+  - texte sous `aria-hidden` → **1 test rouge sur 65**, et c'est la seconde
+    assertion qui tombe : la première passe, le texte étant toujours dans le badge
+  - `aria-hidden` sur un **ancêtre** du badge → **1 test rouge sur 65**
+  - badge `hidden` (+ `display: none`, le mutant mesuré par la review) → **1 test
+    rouge sur 65**, ce qui a fait ajouter `,[hidden]` au sélecteur
+  - texte déplacé en frère du badge → **1 test rouge sur 65**, par la première
+    assertion
+  - `aria-hidden` sur un ancêtre, **après** l'élargissement du sélecteur → **1 test
+    rouge sur 65** : le passage de `[aria-hidden="true"]` à
+    `[aria-hidden="true"],[hidden]` n'a rien cassé
+- **Un mutant reste vivant, et c'est dit** : un `display: none` par classe ou par
+  style, sans `hidden`, passe — mesuré, `63 passés | 2 ignorés (65)`. Fermer cette
+  route demanderait `@testing-library/jest-dom`, absent des dépendances, donc une
+  dépendance : hors périmètre de #77. À l'instar du mutant « icône dupliquée » de
+  #74, il est nommé dans le commentaire du test plutôt que laissé croire couvert
+- **Suites** : **63 passés | 2 ignorés (65)** sur 7 fichiers frontend, les 2 ignorés
+  étant les nouveaux tests dans la variante qui ne les exécute pas. Backend non
+  concerné, `npm run lint` à 0. SPEC.md et PLAN.md inchangés — ni fonctionnalité
+  nouvelle, ni décision d'architecture
+- **Un chiffre rectifié après review** : la première version de cette entrée, et le
+  commentaire du test, attribuaient les 61 tests à ce fichier. 61 est le compte de
+  la **suite entière** sur `main` (mesuré : `7 passed (7)` / `61 passed (61)`) ;
+  ce fichier en compte **20** (`npx vitest run src/components/SondeCard.test.jsx`
+  sur `main` : `20 passed (20)`, 24 sur cette branche dont 2 ignorés), comme la
+  ligne ci-dessous le dit déjà de la mesure de #74. Deux périmètres nommés, un
+  chiffre mesuré chacun
+- **Hors périmètre, et dit** : le mutant « icône décorative dupliquée dans le badge »
+  reste vivant, arbitré en #74 ; le seuil de 3 h d'`isOffline` n'est toujours
+  couvert par aucun test ; le nom accessible de la variante compacte reste verrouillé
+  par #74 et n'est pas re-testé ici
+
 ### 2026-09-26 — L'icône hors ligne, décorative en pleine largeur et nommée en compacte (PR #75, issue #74)
 
 - **Ce qui change, ce sont les tests.** Le comportement est déjà le bon —
