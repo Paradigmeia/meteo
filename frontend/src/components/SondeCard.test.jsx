@@ -176,10 +176,11 @@ describe.each([
     // largeur » sur le fait que le texte « Hors ligne » est nœud frère de l'icône
     // dans le badge — mais il n'assertait que la conséquence (zéro image nommée)
     // et jamais la prémisse. Le texte pouvait disparaître sans rien le dire : les
-    // 61 tests de ce fichier sur `main` passaient, et la card hors ligne se
+    // 61 tests de la suite sur `main` passaient, et la card hors ligne se
     // retrouvait réduite à un pictogramme `aria-hidden`, sans aucun nom
     // accessible. `horsLigne()` ne le voyait pas — il vérifie que le badge existe,
-    // pas ce qu'il dit.
+    // pas ce qu'il dit. (Ce fichier en compte 20 sur `main`, comme la ligne 41 le
+    // dit de la mesure de #74 : deux périmètres nommés, un chiffre mesuré chacun.)
     carte(sondeMuette(), props)
     // Existence du badge vérifiée à part : sinon l'assertion suivante échouerait
     // sur un `undefined` — un rouge, mais pour une raison étrangère.
@@ -189,13 +190,21 @@ describe.each([
     // aussi un texte déplacé en frère du badge : à l'écran, donc visible, et hors
     // du nœud qui le porte — le badge réduit à son pictogramme.
     expect(badge.textContent).toContain('Hors ligne')
-    // Et le texte doit être exposé, pas seulement présent : sous `aria-hidden` il
-    // reste à l'écran et disparaît de l'arbre d'accessibilité — l'état muet que
-    // l'assertion ci-dessus validerait à elle seule. Il s'agit d'une propriété
-    // d'accessibilité, pas de mise en page : rien ici n'affirme que le badge ne
-    // contient qu'une icône, le mutant que #74 a laissé vivre.
+    // Et le texte doit être exposé, pas seulement présent : masqué, il reste à
+    // l'écran et disparaît de l'arbre d'accessibilité — l'état muet que l'assertion
+    // ci-dessus validerait à elle seule. Deux routes, donc deux sélecteurs :
+    // `aria-hidden` le sort de l'arbre d'accessibilité, `hidden` le sort des deux.
+    // Il s'agit d'une propriété d'accessibilité, pas de mise en page : rien ici
+    // n'affirme que le badge ne contient qu'une icône, le mutant que #74 a laissé
+    // vivre.
+    //
+    // **Limite connue, mesurée** : un `display: none` par classe ou par style passe
+    // toujours, et rien ne le rouge. Fermer cette route demanderait
+    // `@testing-library/jest-dom`, absent des dépendances, donc une dépendance —
+    // hors périmètre de #77. Le mutant est nommé ici plutôt que laissé croire
+    // couvert.
     expect(
-      screen.getByText('Hors ligne').closest('[aria-hidden="true"]'),
+      screen.getByText('Hors ligne').closest('[aria-hidden="true"],[hidden]'),
       'texte « Hors ligne » présent mais masqué au lecteur d\'écran',
     ).toBeNull()
   })
