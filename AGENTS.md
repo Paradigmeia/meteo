@@ -1,6 +1,6 @@
 # AGENTS.md — `meteo`
 
-<!-- bloc-agents v1.4 — source : 01-Projects/Katea - chantier/bloc-a-coller-AGENTS-repo.md
+<!-- bloc-agents v1.5 — source : 01-Projects/Katea - chantier/bloc-a-coller-AGENTS-repo.md
      du vault Second Brain. Ne pas modifier ce fichier en place : modifier la
      source, régénérer, repousser (Katea § 6.3). -->
 
@@ -116,6 +116,17 @@ Si le travail tient en une seule PR, livre-le en **commits logiques**, un par
 2. Des commits logiques, **signés du modèle qui a réellement écrit le code**.
    Ne signe jamais d'un modèle que tu n'es pas : une attribution fausse rend
    les post-mortems illisibles.
+
+   La forme exacte, en **dernière ligne** du message, séparée du corps par une
+   ligne vide :
+
+   ```
+   Co-Authored-By: opencode big-pickle <noreply@opencode.ai>
+   ```
+
+   *Ajouté en v1.5. La règle existait depuis v1.1 et n'était jamais appliquée :
+   elle ne disait pas la forme. Une règle sans forme exécutable n'est pas une
+   règle.*
 3. Une pull request :
    - titre de moins de 70 caractères ;
    - corps avec une section `## Summary` et une section `## Test plan` ;
@@ -173,6 +184,13 @@ Il décrit **ce que tu as réellement exécuté**, pas ce que tu aurais pu faire
 - Toute commande que tu cites a été lancée, et sa sortie est copiée du
   terminal.
 - Toute affirmation sur l'état du système a été mesurée.
+- **Tout nombre que tu annonces dit son périmètre** : « les 20 tests de ce
+  fichier », pas « les 61 tests » quand 61 est le compte de la suite entière.
+  Un chiffre peut être exactement mesuré et désigner autre chose que ce dont tu
+  parles — c'est le bloquant du tour #77. *Ajouté en v1.5.*
+- **Un code de retour 0 n'est pas une preuve.** `gh pr edit` sort 0 sans avoir
+  écrit le corps de la PR. Relis l'effet par une autre voie que celle qui a
+  écrit, et cite cette relecture. *Ajouté en v1.5.*
 - Ce que tu n'as pas pu vérifier toi-même, tu le dis explicitement. C'est une
   qualité, pas un aveu.
 - **Ce qui a coincé** — une commande qui a échoué, un aller-retour, une piste
@@ -220,6 +238,8 @@ projet et une implémentation dans la même session : le contexte se remplit et
 la qualité se dégrade.
 
 ## 12. Propre à ce repo
+
+<!-- katea:propre-au-repo debut -->
 
 - **Commande de test** : backend `venv/bin/pytest` (depuis `backend/`, fichier
   unique `test_main.py`) ; frontend `npm test` (depuis `frontend/`).
@@ -303,9 +323,6 @@ la qualité se dégrade.
   - le serveur de dev frontend n'a **pas de proxy** : les fetches sont relatifs
     (`/api/...`) sauf si `frontend/.env.local` définit
     `VITE_API_URL=http://127.0.0.1:8042` — pointe-le sur le backend qui tourne ;
-  - le `gh` de cette machine ne gère pas les Projects (API GraphQL dépréciée) :
-    `gh pr edit` échoue. Mets le corps de la PR à jour autrement et dis-le dans
-    ton compte rendu ;
   - `meteo` tourne sous **systemd**, pas sous `pm2` — la mention de `pm2` au
     § 9 ne concerne pas ce repo.
 - **Ce qui, dans ce repo, appartient au serveur et pas à toi** — ce sont les
@@ -315,6 +332,20 @@ la qualité se dégrade.
   `maison-temp.service` ; la configuration `nginx/maison-temp.conf`.
 - **Format du commit de changelog** : la mise à jour de `PROJECT.md` se commite
   à part : `docs: update PROJECT.md [meteo]`.
+- **Routes de secours `gh`, quand une sous-commande plante ou ment sur cette
+  machine** — constats du tour #77, à ne pas redécouvrir :
+  - `gh issue view <N>` **plante** (dépréciation Projects/GraphQL). Lis l'issue
+    par `gh api repos/Paradigmeia/meteo/issues/<N> --jq '.title, .body'`.
+  - `gh pr edit` **sort 0 sans rien écrire** — le code de retour dit succès
+    alors que le corps n'est pas modifié. Ne t'y fie jamais : après toute
+    tentative d'édition, **relis le corps** par
+    `gh api repos/Paradigmeia/meteo/pulls/<N> --jq '.body'` et compare. Si le
+    corps n'est pas à jour, dis-le dans ton compte rendu.
+  - La route d'écriture par API (`gh api ... -X PATCH -f body=@fichier`)
+    **n'est pas vérifiée sur cette machine** : si tu l'utilises, relis le corps
+    derrière et déclare le résultat, succès comme échec.
+
+<!-- katea:propre-au-repo fin -->
 
 ## 13. Le déploiement — qui, et comment
 
@@ -326,6 +357,8 @@ Le déploiement est exécuté par **Claude Code**, sur **feu vert explicite
 d'Alexis**, donné dans la session au moment voulu. **Un merge n'autorise pas un
 déploiement.** Jamais avant un APPROVE de la review, jamais sans retour arrière
 préparé **et testé**.
+
+<!-- katea:propre-au-repo debut -->
 
 Il tourne **sur le serveur uniquement**, dans `/home/debian/meteo`, via
 `scripts/update.sh` — qui enchaîne `git pull`, `npm ci`, `npm test`, build,
@@ -341,3 +374,16 @@ ce soit :
   déploiement du 2026-08-29).
 - `meteo` tourne sous **systemd**, avec un `systemctl restart`. Contrairement à
   un `pm2 reload`, **il y a une courte coupure** au redémarrage.
+
+<!-- katea:propre-au-repo fin -->
+
+## 14. Marqueur de fin de lecture
+
+Termine ton compte rendu de PR (§ 8) par cette ligne, seule, en dernier :
+
+```
+lecture-AGENTS: otso — bloc-agents v1.5
+```
+
+Recopie le mot tel quel. Il change à chaque version de ce fichier et il n'est
+écrit qu'ici. Si tu ne l'as pas, dis-le — n'en invente pas un.
