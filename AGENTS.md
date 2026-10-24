@@ -1,6 +1,6 @@
 # AGENTS.md — `meteo`
 
-<!-- bloc-agents v1.5 — source : 01-Projects/Katea - chantier/bloc-a-coller-AGENTS-repo.md
+<!-- bloc-agents v1.6, relu v1.6 — source : 01-Projects/Katea - chantier/bloc-a-coller-AGENTS-repo.md
      du vault Second Brain. Ne pas modifier ce fichier en place : modifier la
      source, régénérer, repousser (Katea § 6.3). -->
 
@@ -20,9 +20,13 @@
 >   reste du § 9 s'applique à elle intégralement** — elle ne se connecte à aucun
 >   serveur, ne lance aucune commande sur un service en production, n'appelle
 >   pas le site live. Relire un diff ne demande rien de tout ça.
-> - **La session de déploiement.** Deux interdictions du § 9 ne la visent pas :
->   déployer, et se connecter au serveur — **uniquement dans les conditions du
->   § 13**, qui est son règlement et qu'elle lit avant d'agir.
+> - **La session de déploiement.** Trois interdictions du § 9 ne la visent
+>   pas : déployer ; se connecter au serveur ; et interroger le service de
+>   production **en local** (`127.0.0.1`), jamais par son URL publique —
+>   **uniquement dans les conditions du § 13**, qui est son règlement et qu'elle
+>   lit avant d'agir. Depuis la v1.6, elle ne lance elle-même aucun de ces
+>   gestes : elle les **rédige**, Alexis les lance avec `!`, elle en lit la
+>   sortie (§ 13).
 > - **Le merge n'est l'exception de personne.** Aucune session, quel que soit
 >   son rôle, ne merge à la place d'Alexis.
 >
@@ -113,7 +117,11 @@ Si le travail tient en une seule PR, livre-le en **commits logiques**, un par
    (17 commits typés sur 31) tout en étant absent de la liste — la fusion des
    deux listes l'avait rendu visible. Une seule liste ne peut pas diverger
    d'elle-même, mais elle peut encore être incomplète.*
-2. Des commits logiques, **signés du modèle qui a réellement écrit le code**.
+2. Des commits logiques, **signés du modèle qui a réellement écrit le code**,
+   dont tu **ajoutes les fichiers un par un — jamais `git add -A` ni
+   `git add .`** : un ajout global embarque ce que tu n'as pas regardé.
+   *Règle générale depuis la v1.6 ; le § 12 d'un repo peut en donner un motif
+   propre (des fichiers de données non ignorés, par exemple).*
    Ne signe jamais d'un modèle que tu n'es pas : une attribution fausse rend
    les post-mortems illisibles.
 
@@ -123,6 +131,10 @@ Si le travail tient en une seule PR, livre-le en **commits logiques**, un par
    ```
    Co-Authored-By: opencode big-pickle <noreply@opencode.ai>
    ```
+
+   Une session Claude Code signe **du modèle qu'elle est**, au même format —
+   par exemple `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`. Ne
+   recopie jamais la ligne d'un autre implémenteur.
 
    *Ajouté en v1.5. La règle existait depuis v1.1 et n'était jamais appliquée :
    elle ne disait pas la forme. Une règle sans forme exécutable n'est pas une
@@ -218,6 +230,13 @@ Il décrit **ce que tu as réellement exécuté**, pas ce que tu aurais pu faire
 - Tu ne touches pas aux **secrets** : jetons, `.env`, credentials, clés.
 - Tu ne crées ni ne supprimes de repo, tu ne supprimes pas `main`, tu ne fais
   jamais de `push --force` sur `main`.
+- Tu ne **réécris jamais une branche déjà relue** : pas de rebase, pas
+  d'`amend`, pas de `push --force` sur une branche dont la review a posté un
+  verdict. Une correction s'ajoute en commits nouveaux ; une erreur dans un
+  message de commit se rectifie au merge commit, par Alexis.
+  *Ajouté en v1.6. La règle date du 26/09 mais ne vivait que côté reviewer :
+  au tour `logiretours` #74, le § 9 n'interdisant le `push --force` que sur
+  `main`, la review a posé un bloquant qui demandait de scinder un commit.*
 - Tu ne modifies jamais le repo `Paradigmeia/workflow-dev`.
 
 Si l'issue qu'on te confie demande l'une de ces choses, **tu ne la fais pas :
@@ -229,7 +248,69 @@ Un accès permanent (« autoriser toujours ») se limite au **dossier de ce
 projet**. Jamais au dossier personnel de l'utilisateur : c'est là que vivent
 les jetons d'authentification.
 
-Pour tout le reste, demande au cas par cas.
+**Si tu tournes hors de la boîte décrite ci-dessous** (opencode, où qu'il
+tourne) : pour tout accès en dehors de ce dossier, demande au cas par cas.
+*(Claude Code n'a pas de rôle sur le PC dans Katea : il travaille sur le
+serveur, dans la boîte.)*
+
+**Si tu es une session Claude Code sur le serveur**, tu tournes dans une
+boîte (le sandbox, mode strict) : tu n'écris que dans le dossier où la session
+a été ouverte, le dossier temporaire et quelques dossiers de travail de
+l'outil ; ni le site public, ni le serveur vu en local, ni systemd ne sont
+joignables. Dans la boîte, tes commandes passent sans demande, et tu ne
+demandes pas d'accès hors de la boîte. Trois formes de commande déclenchent
+quand même une demande d'autorisation, boîte ou pas : celles qui contiennent
+`$(…)` (première puce ci-dessous), celles qui contiennent le mot `source`
+(deuxième puce), et celles qui visent un chemin hors du
+dossier de la session **et hors du dossier temporaire** — évite-les. Une demande qui apparaît pour une autre
+raison est un imprévu, qu'Alexis refuse. **Les écritures de fichiers par ton
+outil d'édition sont à part** : à l'étape 2, Alexis les accepte d'office
+(mode « accepter les modifications »), parce que tu restes dans le clone et
+que la review relit tout. N'écris jamais un fichier du clone par une commande
+shell pour éviter cette étape.
+
+Ce que la boîte refuse **ne se contourne pas** : ne propose ni une
+variante de la commande, ni d'en sortir, ni de la faire lancer par quelqu'un
+d'autre. Si ton travail demande un geste hors de la boîte, **c'est que l'issue
+est mal routée : tu le signales** (§ 9). Seule la session de déploiement fait
+lancer des commandes par Alexis, dans les conditions du § 13.
+
+- **Découpe avant de lancer toute commande qui contient `$(…)`** — y compris
+  celles du § 12 : dans Claude Code, une commande qui en contient une autre
+  demande toujours un accord à Alexis. Lance d'abord la commande intérieure (par
+  exemple `mktemp -d`), puis la commande principale avec le chemin affiché.
+  Découper avant n'est pas une variante : la variante, c'est ce qu'on propose
+  après un refus.
+- **N'active jamais un environnement Python par `source`** : le mot déclenche
+  une demande (mesuré le 23/10). Appelle ses programmes par leur chemin
+  (`venv/bin/python -m pytest`, `venv/bin/pip install …`), y compris quand le
+  § 12 écrit `source venv/bin/activate && …`. Ni `source`, ni sa forme courte
+  `.` : c'est la même activation. Une différence à connaître : l'activation met
+  aussi `venv/bin` en tête du chemin de recherche ; si la suite échoue faute de
+  trouver un programme appelé par son nom (`python`, `gunicorn`), dis-le au
+  lieu de contourner.
+- **Dans la boîte, `git status` montre de faux fichiers non suivis**
+  (`.bashrc`, `.gitconfig`, `.mcp.json`, `.idea`, `.vscode`, `.profile`…) : la
+  boîte les pose pour protéger ces chemins, ils n'existent pas au dehors.
+  Ignore-les — c'est une raison de plus de ne jamais faire d'ajout global
+  (§ 5).
+- **Le dossier temporaire est commun** à toutes les sessions du compte
+  (`/tmp/claude-1000`) : ce n'est pas le tien. Crée ton propre sous-dossier
+  par `mktemp -d` et n'écris que dedans — c'est là que vont les fichiers qui ne
+  doivent pas finir dans un commit (compte rendu du § 8, corps de PR). **Par
+  des commandes shell**, y écrire, y relire et passer ce chemin à une commande
+  ne déclenche **aucune demande** (mesuré le 23/10). Tes outils de lecture et
+  d'édition, eux, demandent un accord hors du dossier de la session : dans ce
+  sous-dossier, écris et relis par commande (`cat > … <<'EOF'`, `cat`).
+- **Un serveur que tu lances ne survit pas à ta commande** : chaque commande
+  tourne dans sa propre boîte. Pour vérifier en local ce que tu livres (§ 9),
+  démarre le serveur et interroge-le **dans la même commande**.
+
+*Tout ce qui suit « Si tu es une session Claude Code sur le serveur », jusqu'ici
+— paragraphes et puces —, ne concerne pas opencode, qui ne tourne pas dans
+cette boîte.*
+
+*Ajouté en v1.6 (Katea § 5.3, « La boîte »).*
 
 ## 11. Une session par issue
 
@@ -246,7 +327,8 @@ la qualité se dégrade.
 - **Commande de lint** : frontend `npm run lint`. **Aucun linter ni typecheck
   backend n'est configuré** — n'en invente pas un, et ne présente pas son
   absence comme une erreur.
-- **Environnement à activer avant de lancer quoi que ce soit** :
+- **Environnement à utiliser** (programmes appelés par leur chemin, sans
+  activation — § 10) :
   backend `python3 -m venv venv && venv/bin/pip install -r requirements-dev.txt`,
   puis tout passer par `venv/bin/…` (jamais le Python du système) ;
   lancement local `venv/bin/uvicorn main:app --port 8042`, qui lit `backend/.env`
@@ -334,8 +416,9 @@ la qualité se dégrade.
   à part : `docs: update PROJECT.md [meteo]`.
 - **Routes de secours `gh`, quand une sous-commande plante ou ment sur cette
   machine** — constats du tour #77, à ne pas redécouvrir :
-  - `gh issue view <N>` **plante** (dépréciation Projects/GraphQL). Lis l'issue
-    par `gh api repos/Paradigmeia/meteo/issues/<N> --jq '.title, .body'`.
+  - `gh issue view <N>` **fonctionne de nouveau** (constaté le 2026-10-24 ; il
+    plantait au tour #77 à cause de la dépréciation Projects/GraphQL). En cas
+    de rechute : `gh api repos/Paradigmeia/meteo/issues/<N> --jq '.title, .body'`.
   - `gh pr edit` **sort 0 sans rien écrire** — le code de retour dit succès
     alors que le corps n'est pas modifié. Ne t'y fie jamais : après toute
     tentative d'édition, **relis le corps** par
@@ -353,16 +436,42 @@ la qualité se dégrade.
 section existe pour que personne n'improvise — et pour que la session qui
 déploie trouve ses règles dans le repo au lieu de les redécouvrir.
 
-Le déploiement est exécuté par **Claude Code**, sur **feu vert explicite
-d'Alexis**, donné dans la session au moment voulu. **Un merge n'autorise pas un
-déploiement.** Jamais avant un APPROVE de la review, jamais sans retour arrière
-préparé **et testé**.
+Le déploiement est **préparé par Claude Code** et **lancé par Alexis**, sur
+son **feu vert explicite**, donné dans la session au moment voulu. **Un merge
+n'autorise pas un déploiement.** Jamais avant un APPROVE de la review, jamais
+sans retour arrière préparé **et testé**.
+
+La session de déploiement s'ouvre dans le clone de travail du repo, jamais
+dans le dossier de production ni dans le dossier personnel. Elle tourne dans
+la boîte (§ 10) : elle ne peut ni écrire en production, ni redémarrer un
+service, ni interroger le service en local. Elle **rédige** chaque commande —
+le script de mise à jour, les contrôles (`curl 127.0.0.1:…`,
+l'état du service, sous la forme que donne la partie propre au repo
+ci-dessous), le retour arrière —, **une à la fois** ; elle
+attend qu'Alexis l'ait fait vérifier puis lancée avec `!`, en lit la sortie et
+dit ce qu'elle en conclut avant de rédiger la suivante. **Avant de lire une
+sortie, elle compare la ligne `!` qu'elle voit à celle qu'elle a rédigée** :
+si elles diffèrent, elle le dit et ne conclut rien.
+
+**Les mesures d'avant déploiement passent elles aussi par `!`** — tout ce qui
+lit la production (son dossier, les fichiers servis, la base) ou interroge
+systemd : la production est hors du dossier de la session, et systemd ne
+répond pas dans la boîte. Le test du retour arrière sur un clone jetable se
+fait dans son sous-dossier `mktemp -d` s'il n'a besoin ni de la production ni
+de systemd, sinon par `!` lui aussi. **Jamais de copie du dossier de
+production dans le dossier temporaire**, commun à toutes les sessions : elle
+emporterait le `.env`, que la boîte ne protège qu'à son emplacement d'origine.
+Un clone git, puis seulement les fichiers non suivis nécessaires, jamais un
+`.env`.
 
 <!-- katea:propre-au-repo debut -->
 
 Il tourne **sur le serveur uniquement**, dans `/home/debian/meteo`, via
-`scripts/update.sh` — qui enchaîne `git pull`, `npm ci`, `npm test`, build,
-puis `systemctl restart maison-temp`, et vérifie le service et l'API à la fin.
+`scripts/update.sh` — qui enchaîne `git pull`, se relance,
+`venv/bin/pip install -r requirements.txt` (backend), `npm ci`, `npm test`,
+`npm run build`, puis `sudo systemctl restart maison-temp` (seule commande sudo
+sans mot de passe, `/etc/sudoers.d/maison-temp`), et vérifie le service et
+l'API à la fin.
 `scripts/install.sh` ne sert qu'à la première installation.
 
 **Particularités de déploiement de ce repo** — à lire avant d'exécuter quoi que
@@ -372,8 +481,15 @@ ce soit :
   un script par position d'octet, et continuer après un pull qui a décalé les
   lignes ferait exécuter un mélange des deux versions (ça s'est produit au
   déploiement du 2026-08-29).
-- `meteo` tourne sous **systemd**, avec un `systemctl restart`. Contrairement à
+- `meteo` tourne sous **systemd**, avec un `sudo systemctl restart`. Contrairement à
   un `pm2 reload`, **il y a une courte coupure** au redémarrage.
+
+**Contrôles après déploiement** — chacun rédigé par toi, lancé par Alexis
+avec `!`, un à la fois — vérifiés sur ce serveur le 2026-10-24 :
+
+- `systemctl is-active maison-temp` — attendu : `active` ;
+- `curl -fsS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8042/api/sondes`
+  — attendu : `200`.
 
 <!-- katea:propre-au-repo fin -->
 
@@ -382,7 +498,7 @@ ce soit :
 Termine ton compte rendu de PR (§ 8) par cette ligne, seule, en dernier :
 
 ```
-lecture-AGENTS: otso — bloc-agents v1.5
+lecture-AGENTS: mendi — bloc-agents v1.6
 ```
 
 Recopie le mot tel quel. Il change à chaque version de ce fichier et il n'est
